@@ -2,6 +2,7 @@ package io.floci.aws.services.cloudformation;
 
 import io.floci.aws.core.common.XmlParser;
 import io.floci.aws.testing.CfnStackWaits;
+import io.floci.aws.testing.EcrRegistryWarmup;
 import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Test;
 
@@ -513,6 +514,7 @@ class CfnUnchangedResourceUpdateIntegrationTest {
 
     @Test
     void ecrRepository() {
+        EcrRegistryWarmup.warm();
         assertUnchangedResourceSurvivesUpdate("ecr", """
                 "Named": {
                   "Type": "AWS::ECR::Repository",

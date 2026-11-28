@@ -4,6 +4,7 @@ import io.floci.aws.services.cloudformation.model.Stack;
 import io.floci.aws.testing.AwsTestClients;
 import io.floci.aws.testing.CfnStackWaits;
 import io.floci.aws.testing.DockerAvailability;
+import io.floci.aws.testing.EcrRegistryWarmup;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.http.ContentType;
 import jakarta.inject.Inject;
@@ -291,6 +292,9 @@ class CfnReplacementIntegrationTest {
     void aChangeSetReportsReplacementExactlyWhenTheUpdateChangesThePhysicalId(Row row) throws Exception {
         if (row.needsDocker()) {
             Assumptions.assumeTrue(DockerAvailability.isAvailable(), "Docker is required for the cache data plane");
+        }
+        if (row.before().contains("\"AWS::ECR::Repository\"")) {
+            EcrRegistryWarmup.warm();
         }
         String stack = "repl-" + Long.toString(System.nanoTime(), 36);
         try (CloudFormationClient client = AwsTestClients.create(
@@ -658,6 +662,7 @@ class CfnReplacementIntegrationTest {
 
     @Test
     void aRenamedEcrRepositoryLeavesNoRepositoryUnderTheOldName() throws Exception {
+        EcrRegistryWarmup.warm();
         String suffix = Long.toString(System.nanoTime(), 36);
         String stack = "repl-ecr-" + suffix;
         String first = "repl-ecr-a-" + suffix;
@@ -690,6 +695,7 @@ class CfnReplacementIntegrationTest {
     @Test
     void aRenamedEcrRepositoryThatStillHoldsAnImageIsKept() throws Exception {
         Assumptions.assumeTrue(DockerAvailability.isAvailable(), "Docker is required for the registry data plane");
+        EcrRegistryWarmup.warm();
         String suffix = Long.toString(System.nanoTime(), 36);
         String stack = "repl-ecr-full-" + suffix;
         String first = "repl-ecr-full-a-" + suffix;

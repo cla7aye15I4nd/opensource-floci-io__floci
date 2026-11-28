@@ -2,6 +2,7 @@ package io.floci.aws.services.cloudformation;
 
 import io.floci.aws.core.common.XmlParser;
 import io.floci.aws.testing.CfnStackWaits;
+import io.floci.aws.testing.EcrRegistryWarmup;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.response.Response;
 import io.restassured.specification.RequestSpecification;
@@ -147,6 +148,9 @@ class CloudFormationNamedResourceIdenticalUpdateIntegrationTest {
     @ParameterizedTest
     @MethodSource("cases")
     void identicalUpdateIsANoOpAndDeleteCleansUp(Case c) {
+        if (c.template().contains("\"AWS::ECR::Repository\"")) {
+            EcrRegistryWarmup.warm();
+        }
         String suffix = Long.toString(System.nanoTime(), 36);
         String stackName = "probe-" + suffix;
         String template = c.template().replace("%s", suffix);

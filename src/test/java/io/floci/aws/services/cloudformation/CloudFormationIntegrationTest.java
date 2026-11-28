@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.floci.aws.services.cloudformation.model.Stack;
 import io.floci.aws.services.ec2.Ec2Service;
 import io.floci.aws.testing.CfnStackWaits;
+import io.floci.aws.testing.EcrRegistryWarmup;
 import io.floci.aws.testing.LambdaCodeFixtures;
 import io.floci.aws.testing.MutableClock;
 import io.floci.aws.testing.RestAssuredJsonUtils;
@@ -3471,6 +3472,7 @@ class CloudFormationIntegrationTest {
 
     @Test
     void createStack_ecrAutoName_isLowercase() {
+        EcrRegistryWarmup.warm();
         // ECR repository names must be lowercase.
         // See: https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-ecr-repository.html
         String template = """
