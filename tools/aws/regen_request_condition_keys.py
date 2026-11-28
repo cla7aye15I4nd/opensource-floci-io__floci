@@ -22,6 +22,13 @@ it. `SERVICES` names, for each namespace, the keys read and where:
   name as `route53:ChangeResourceRecordSetsActions`, `...RecordTypes` and `...NormalizedRecordNames`. The names
   are read as `DNSName` members, which Route 53 spells as AWS normalizes them for the key, through the spelling
   the service registers for that shape.
+- `events`: a PutRule request is checked with the literal strings its event pattern gives the event's `source`,
+  `detail-type`, `detail.service`, `detail.eventTypeCode` and `detail.userIdentity.principalId` fields as
+  `events:source`, `events:detail-type` and the `events:detail.*` keys, and a PutTargets request with the ARN of
+  each target it adds as `events:TargetArn`, as the EventBridge user guide gives them (`CONDITION_SOURCES`); a
+  pattern leaving a field out names nothing. PutEvents, CreateEventSource and UpdateEventSource take `events:source`
+  too, and PutEvents `events:detail-type`, from what they put or name, which the guide's table does not describe, so
+  they are not read there.
 - `sts`: an AssumeRole request is checked with the session name and external ID it passes as
   `sts:RoleSessionName` and `sts:ExternalId`, so the caller's identity-based policy can require them as a
   trust policy can; an AssumeRole without `ExternalId` names none. AssumeRoleWithWebIdentity carries
@@ -42,7 +49,9 @@ The table comes from two sources:
 `actions` holds every action that takes a key a namespace reads, with the ones it takes. `members` holds, for
 every action and key read from the request, the paths of the request members named as `SERVICES` gives, as the
 request carries them: dotted for a nested one, `*` for each element of a list or map in a JSON body, and in an XML
-body the elements botocore names, a list's own by the name of its member (`ChangeBatch.Changes.Change.Action`).
+body the elements botocore names, a list's own by the name of its member (`ChangeBatch.Changes.Change.Action`). A
+string member holding a JSON document is followed by `#` and the path inside the document
+(`EventPattern#source.*`, each literal string of the pattern's `source`).
 A Query request is read as a flat form, so its member must be top-level; an XML request is read from its body, so
 its member must not be in the URI or a header, nor reached through a map or a flattened list. A key read from the
 stored resource has no member, and an action whose request does not carry the key is in `not_in_request`, with
@@ -68,12 +77,14 @@ import sys
 import urllib.request
 from pathlib import Path
 
+import fetch_eventbridge_conditions
 from regen_dynamodb_condition_keys import member_paths
 from regen_iam_tag_on_create import _condition_keys, _resource_keys
 from regen_partitions import resolve_botocore_data
 from regen_query_services import latest_model_dir, load_model
 
-OUTPUT = Path(__file__).resolve().parents[2] / "src/main/resources/aws/request-condition-keys.json"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+OUTPUT = REPO_ROOT / "src/main/resources/aws/request-condition-keys.json"
 REFERENCE = "https://servicereference.us-east-1.amazonaws.com/"
 FLAT_PROTOCOLS = ("query", "ec2")
 
@@ -136,6 +147,35 @@ SERVICES = {
 }
 
 
+# CONDITION_SOURCES: the namespaces whose documentation says which request member carries a key, where neither
+# botocore nor the Service Reference says it, with their botocore model and the vendored page that says so. Granted
+# for EventBridge: its user guide's table of condition keys gives `events:source`, `events:detail-type` and the
+# `events:detail.*` keys as "the literal string for the <field> field of the event", which a rule's "event pattern"
+# gives ("EventPattern is a mandatory argument to PutRule"), and `events:TargetArn` as "the ARN of the target for the
+# rule"; tools/aws/fetch_eventbridge_conditions.py vendors that page and `vendored_service` reads it. Each file is
+# written by its own script from the page, unchanged, and nothing about an operation is stated here.
+CONDITION_SOURCES: dict[str, dict] = {
+    "events": {"model": "events", "source": REPO_ROOT / "tools/aws/sources/eventbridge-condition-keys.json",
+               "fetcher": fetch_eventbridge_conditions},
+}
+
+
+def vendored_service(namespace: str) -> dict:
+    """The `SERVICES` entry of a namespace a vendored page gives (`CONDITION_SOURCES`): each key read from the member
+    the page says carries it, a field of a JSON document after `#`, in the one operation the page names for it."""
+    granted = CONDITION_SOURCES[namespace]
+    document = json.loads(granted["source"].read_text(encoding="utf-8"))
+    request, operations = {}, {}
+    for entry in document["keys"]:
+        request[entry["key"]] = entry["member"] + (f"#{entry['field']}.*" if "field" in entry else "")
+        operations[entry["key"]] = entry["operation"]
+    return {"model": granted["model"], "request": request, "stored": (), "not_in_request": {},
+            "operations": operations}
+
+
+SERVICES.update({namespace: vendored_service(namespace) for namespace in CONDITION_SOURCES})
+
+
 def url(namespace: str) -> str:
     return f"{REFERENCE}v1/{namespace}/{namespace}.json"
 
@@ -183,22 +223,31 @@ def _located(namespace: str, model: dict | None, actions: dict[str, list[str]]):
         for key in keys:
             if key not in service["request"] or (action, key) in service["not_in_request"]:
                 continue
-            name = service["request"][key]
+            # A vendored page names the one operation it reads a key from; another taking the key is not read.
+            if service.get("operations", {}).get(key, action.split(":", 1)[1]) != action.split(":", 1)[1]:
+                continue
+            name, _, document = service["request"][key].partition("#")
             if model is None:  # not modelled by botocore: the member is the name SERVICES gives
                 yield action, key, name, None
                 continue
             operation = model["operations"].get(action.split(":", 1)[1])
             if operation is None or "input" not in operation:
                 raise ValueError(f"{action} takes {key} but botocore has no request for it")
-            paths = member_paths(model, operation["input"]["shape"], {name})
+            # A vendored page gives a member by its path; `SERVICES` by its name, wherever it is.
+            paths = [name] if "." in name else member_paths(model, operation["input"]["shape"], {name})
             if not paths:
                 raise ValueError(f"{action} takes {key} but its request has no {name} member")
             nested = [path for path in paths if protocol in FLAT_PROTOCOLS and "." in path]
             if nested:
                 raise ValueError(f"{action} takes {key} from {', '.join(nested)}, which a flat form does not carry")
             for path in paths:
-                carried, shape = carried_member(model, operation["input"]["shape"], path, protocol == "rest-xml")
-                yield action, key, carried, shape
+                try:
+                    carried, shape = carried_member(model, operation["input"]["shape"], path, protocol == "rest-xml")
+                except KeyError as e:
+                    raise ValueError(f"{action} takes {key} from {path}, which its request does not have") from e
+                if document and model["shapes"][shape].get("type") != "string":
+                    raise ValueError(f"{action} takes {key} from a document in {path}, which is not a string")
+                yield action, key, carried + (f"#{document}" if document else ""), shape
 
 
 def carried_member(model: dict, shape: str, path: str, xml: bool) -> tuple[str, str]:
@@ -286,6 +335,23 @@ def _members(actions: dict[str, list[str]], botocore_data: Path | None) -> tuple
             "protocols": dict(sorted(protocols.items()))}, provenance
 
 
+def verify_condition_sources() -> list[str]:
+    """Where a vendored page (`CONDITION_SOURCES`) no longer says what its file does: online."""
+    problems = []
+    for granted in CONDITION_SOURCES.values():
+        fetcher = granted["fetcher"]
+        try:
+            page = fetcher.fetch_url(fetcher.PAGE)
+        except OSError as e:
+            problems.append(f"could not read {fetcher.PAGE} ({e})")
+            continue
+        if fetcher.stale(json.loads(granted["source"].read_text(encoding="utf-8")), page):
+            problems.append(f"{granted['source'].relative_to(REPO_ROOT)} no longer says what {fetcher.PAGE} does: "
+                            f"run {granted['source'].relative_to(REPO_ROOT).parent.parent}/"
+                            f"{fetcher.__name__}.py and then make request-condition-keys-sync")
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true", help="offline: members must match the pinned botocore")
@@ -304,6 +370,8 @@ def main(argv: list[str] | None = None) -> int:
                     problems.append(f"{section} differ from {provenance}")
         if args.verify and document.get("actions") != _actions(args.source_dir):
             problems.append("actions differ from the AWS Service Reference")
+        if args.verify:
+            problems += verify_condition_sources()
         for problem in problems:
             print(f"{OUTPUT.name}: {problem}", file=sys.stderr)
         return 1 if problems else 0

@@ -2,7 +2,7 @@
   "_source": {
     "generator": "tools/aws/regen_request_condition_keys.py",
     "reference": "https://servicereference.us-east-1.amazonaws.com/",
-    "botocore": "botocore 1.43.118 (installed package)",
+    "botocore": "botocore 1.44.9 (installed package)",
     "note": "make request-condition-keys-check re-derives members, their shapes and the protocols from botocore; make request-condition-keys-verify checks actions against AWS."
   },
   "actions": {
@@ -21,6 +21,26 @@
       "eks:authenticationMode",
       "eks:endpointPrivateAccess",
       "eks:endpointPublicAccess"
+    ],
+    "events:CreateEventSource": [
+      "events:source"
+    ],
+    "events:PutEvents": [
+      "events:detail-type",
+      "events:source"
+    ],
+    "events:PutRule": [
+      "events:detail-type",
+      "events:detail.eventTypeCode",
+      "events:detail.service",
+      "events:detail.userIdentity.principalId",
+      "events:source"
+    ],
+    "events:PutTargets": [
+      "events:TargetArn"
+    ],
+    "events:UpdateEventSource": [
+      "events:source"
     ],
     "lambda:CreateWebFunction": [
       "lambda:Request/WebFunctionAuthType"
@@ -100,6 +120,28 @@
         "resourcesVpcConfig.endpointPublicAccess"
       ]
     },
+    "events:PutRule": {
+      "events:detail-type": [
+        "EventPattern#detail-type.*"
+      ],
+      "events:detail.eventTypeCode": [
+        "EventPattern#detail.eventTypeCode.*"
+      ],
+      "events:detail.service": [
+        "EventPattern#detail.service.*"
+      ],
+      "events:detail.userIdentity.principalId": [
+        "EventPattern#detail.userIdentity.principalId.*"
+      ],
+      "events:source": [
+        "EventPattern#source.*"
+      ]
+    },
+    "events:PutTargets": {
+      "events:TargetArn": [
+        "Targets.*.Arn"
+      ]
+    },
     "lambda:CreateWebFunction": {
       "lambda:Request/WebFunctionAuthType": [
         "endpointConfig.authType"
@@ -157,6 +199,16 @@
       "resourcesVpcConfig.endpointPrivateAccess": "BoxedBoolean",
       "resourcesVpcConfig.endpointPublicAccess": "BoxedBoolean"
     },
+    "events:PutRule": {
+      "EventPattern#detail-type.*": "EventPattern",
+      "EventPattern#detail.eventTypeCode.*": "EventPattern",
+      "EventPattern#detail.service.*": "EventPattern",
+      "EventPattern#detail.userIdentity.principalId.*": "EventPattern",
+      "EventPattern#source.*": "EventPattern"
+    },
+    "events:PutTargets": {
+      "Targets.*.Arn": "TargetArn"
+    },
     "lambda:CreateWebFunction": {
       "endpointConfig.authType": "AuthType"
     },
@@ -184,6 +236,7 @@
   },
   "protocols": {
     "eks": "rest-json",
+    "events": "json",
     "lambda": "rest-json",
     "redshift": "query",
     "route53": "rest-xml",

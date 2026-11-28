@@ -644,7 +644,9 @@ S3CONTROL_TAG_CONDITION_KEYS_PATHS := src/main/resources/aws/s3control-tag-condi
 	tools/aws/regen_iam_tag_on_create.py $(IAM_PASSED_ROLES_GENERATOR)
 REQUEST_CONDITION_KEYS_PATHS := src/main/resources/aws/request-condition-keys.json \
 	tools/aws/regen_request_condition_keys.py tools/aws/test_regen_request_condition_keys.py \
-	tools/aws/regen_dynamodb_condition_keys.py tools/aws/regen_iam_tag_on_create.py $(IAM_PASSED_ROLES_GENERATOR)
+	tools/aws/regen_dynamodb_condition_keys.py tools/aws/regen_iam_tag_on_create.py $(IAM_PASSED_ROLES_GENERATOR) \
+	tools/aws/sources/eventbridge-condition-keys.json tools/aws/fetch_eventbridge_conditions.py \
+	tools/aws/test_fetch_eventbridge_conditions.py
 DOCUMENTED_ROUTES_PATHS := src/main/resources/aws/rest-routes.json tools/aws/regen_rest_routes.py \
 	tools/aws/test_regen_rest_routes.py tools/aws/regen_partitions.py tools/aws/regen_query_services.py
 IAM_REQUEST_RESOURCES_PATHS := src/main/resources/aws/iam-request-resources.json \
@@ -986,7 +988,7 @@ s3control-tag-condition-keys-verify: ## Check the S3 Control tag condition actio
 	$(PYTHON) tools/aws/regen_s3control_tag_condition_keys.py --verify
 
 .PHONY: request-condition-keys-sync request-condition-keys-check request-condition-keys-verify
-request-condition-keys-sync: ## Regenerate the Lambda Web, Redshift, Route 53 and STS request condition keys from AWS and botocore
+request-condition-keys-sync: ## Regenerate the EventBridge, Lambda Web, Redshift, Route 53 and STS request condition keys from AWS and botocore
 	$(PYTHON) tools/aws/regen_request_condition_keys.py
 request-condition-keys-check: ## Check the request condition key members against pinned botocore
 	$(PYTHON) tools/aws/regen_request_condition_keys.py --check

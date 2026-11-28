@@ -132,7 +132,7 @@ def test_the_vendored_table_covers_its_namespaces():
         "route53:ChangeResourceRecordSets"]
     assert document["memberShapes"]["route53:ChangeResourceRecordSets"][
         "ChangeBatch.Changes.Change.ResourceRecordSet.Name"] == "DNSName"
-    assert document["protocols"] == {"eks": "rest-json", "lambda": "rest-json",
+    assert document["protocols"] == {"eks": "rest-json", "events": "json", "lambda": "rest-json",
                                      "redshift": "query", "route53": "rest-xml", "sts": "query"}
 
 
@@ -142,6 +142,9 @@ def test_the_vendored_table_covers_its_namespaces():
     "tools/aws/test_regen_request_condition_keys.py",
     "tools/aws/regen_dynamodb_condition_keys.py",
     "tools/aws/regen_iam_tag_on_create.py",
+    "tools/aws/sources/eventbridge-condition-keys.json",
+    "tools/aws/fetch_eventbridge_conditions.py",
+    "tools/aws/test_fetch_eventbridge_conditions.py",
     "tools/aws/regen_iam_passed_roles.py",
     "tools/aws/regen_partitions.py",
     "tools/aws/regen_query_services.py",
@@ -207,3 +210,55 @@ def test_assume_role_reads_its_session_name_and_external_id():
     assert document["actions"]["sts:AssumeRoleWithSAML"] == ["sts:RoleSessionName"]
     assert "sts:AssumeRoleWithSAML" not in document["members"]
     assert "sts:GetCallerIdentity" not in document["actions"]
+
+
+EVENTS = {"metadata": {"protocol": "json"}, "operations": {
+    "PutRule": {"input": {"shape": "PutRuleRequest"}}, "PutTargets": {"input": {"shape": "PutTargetsRequest"}},
+    "PutEvents": {"input": {"shape": "PutEventsRequest"}}}, "shapes": {
+    "PutRuleRequest": {"type": "structure", "members": {"Name": {"shape": "RuleName"},
+                                                        "EventPattern": {"shape": "EventPattern"}}},
+    "PutTargetsRequest": {"type": "structure", "members": {"Rule": {"shape": "RuleName"},
+                                                           "Targets": {"shape": "TargetList"}}},
+    "TargetList": {"type": "list", "member": {"shape": "Target"}},
+    "Target": {"type": "structure", "members": {"Arn": {"shape": "TargetArn"},
+                                                "DeadLetterConfig": {"shape": "DeadLetterConfig"}}},
+    "DeadLetterConfig": {"type": "structure", "members": {"Arn": {"shape": "ResourceArn"}}},
+    "PutEventsRequest": {"type": "structure", "members": {"Entries": {"shape": "Entries"}}},
+    "Entries": {"type": "list", "member": {"shape": "Entry"}},
+    "Entry": {"type": "structure", "members": {"Source": {"shape": "String"}}},
+    "RuleName": {"type": "string"}, "EventPattern": {"type": "string"}, "TargetArn": {"type": "string"},
+    "ResourceArn": {"type": "string"}, "String": {"type": "string"}}}
+
+
+def test_a_vendored_key_is_read_from_its_member_in_the_one_operation_its_page_names():
+    # EventBridge's user guide reads events:source from the field of PutRule's event pattern, a JSON document the
+    # string member holds, and events:TargetArn from each target's own ARN, not its dead-letter queue's; PutEvents
+    # takes events:source too, which the page does not describe, so it is not read there.
+    actions = {"events:PutRule": ["events:source"], "events:PutTargets": ["events:TargetArn"],
+               "events:PutEvents": ["events:source"]}
+    assert request_members("events", EVENTS, actions) == {
+        "events:PutRule": {"events:source": ["EventPattern#source.*"]},
+        "events:PutTargets": {"events:TargetArn": ["Targets.*.Arn"]}}
+    assert member_shapes("events", EVENTS, actions)["events:PutRule"] == {"EventPattern#source.*": "EventPattern"}
+
+
+def test_a_vendored_member_its_request_does_not_have_or_a_document_that_is_no_string_fails(monkeypatch):
+    import regen_request_condition_keys as r
+    entry = r.SERVICES["events"]
+    monkeypatch.setitem(r.SERVICES, "events", {**entry, "request": {**entry["request"], "events:TargetArn":
+                                                                    "Targets.*.Missing"}})
+    with pytest.raises(ValueError, match="Targets.*.Missing, which its request does not have"):
+        request_members("events", EVENTS, {"events:PutTargets": ["events:TargetArn"]})
+    monkeypatch.setitem(r.SERVICES, "events", {**entry, "request": {**entry["request"], "events:source":
+                                                                    "Targets#source.*"}})
+    with pytest.raises(ValueError, match="not a string"):
+        request_members("events", {**EVENTS, "operations": {"PutRule": {"input": {"shape": "PutTargetsRequest"}}}},
+                        {"events:PutRule": ["events:source"]})
+
+
+def test_the_vendored_table_reads_eventbridge_rules_and_targets():
+    document = json.loads(OUTPUT.read_text())
+    assert document["members"]["events:PutRule"]["events:source"] == ["EventPattern#source.*"]
+    assert document["members"]["events:PutRule"]["events:detail.service"] == ["EventPattern#detail.service.*"]
+    assert document["members"]["events:PutTargets"] == {"events:TargetArn": ["Targets.*.Arn"]}
+    assert "events:PutEvents" not in document["members"]

@@ -4000,6 +4000,66 @@ class IamRequestResourceEnforcementIntegrationTest {
         return arn;
     }
 
+    /**
+     * A rule is checked with the literal strings its event pattern gives the event's fields, as {@code events:source}
+     * and {@code events:detail-type}, and a rule's targets with their ARNs, as {@code events:TargetArn}, as the
+     * EventBridge user guide gives them: a pattern leaving the source out names none, so a {@code Null} check
+     * refuses it, and every source and every target ARN must be allowed.
+     */
+    @Test
+    void anEventBridgeRuleIsCheckedWithItsPatternsSourcesAndItsTargetsArns() {
+        User user = user("events-conditions");
+        String rule = "conditions-" + suffix();
+        cleanup.register(() -> admin("events").header("X-Amz-Target", "AWSEvents.DeleteRule")
+                .contentType("application/x-amz-json-1.1").body("{\"Name\":\"" + rule + "\",\"Force\":true}")
+                .post("/"));
+        String sources = "{\"Effect\":\"Allow\",\"Action\":\"events:PutRule\",\"Resource\":\"*\",\"Condition\":{"
+                + "\"Null\":{\"events:source\":\"false\"},\"ForAllValues:StringEquals\":{\"events:source\":"
+                + "[\"aws.ec2\",\"aws.health\"]}}}";
+        user.policy(sources);
+        patternRule(user, rule, "{\"source\":[\"aws.ec2\"]}").statusCode(200);
+        patternRule(user, rule, "{\"source\":[\"aws.ec2\",\"aws.health\"]}").statusCode(200);
+        refusedJson(patternRule(user, rule, "{\"source\":[\"aws.ec2\",\"aws.s3\"]}"), "events:PutRule");
+        refusedJson(patternRule(user, rule, "{\"detail-type\":[\"EC2 Instance State-change Notification\"]}"),
+                "events:PutRule");
+
+        // An explicit deny on one source holds against an allow of every rule.
+        user.policy(allowOn("events:PutRule", "*") + ",{\"Effect\":\"Deny\",\"Action\":\"events:PutRule\","
+                + "\"Resource\":\"*\",\"Condition\":{\"ForAnyValue:StringEquals\":{\"events:source\":\"aws.s3\"}}}");
+        patternRule(user, rule, "{\"source\":[\"aws.ec2\"]}").statusCode(200);
+        refusedJson(patternRule(user, rule, "{\"source\":[\"aws.ec2\",\"aws.s3\"]}"), "events:PutRule");
+
+        user.policy("{\"Effect\":\"Allow\",\"Action\":\"events:PutRule\",\"Resource\":\"*\",\"Condition\":{"
+                + "\"ForAllValues:StringEquals\":{\"events:detail-type\":"
+                + "\"EC2 Instance State-change Notification\"}}}");
+        patternRule(user, rule, "{\"source\":[\"aws.ec2\"],\"detail-type\":[\"EC2 Instance State-change "
+                + "Notification\"]}").statusCode(200);
+        refusedJson(patternRule(user, rule, "{\"detail-type\":[\"AWS API Call via CloudTrail\"]}"), "events:PutRule");
+
+        String queue = "arn:aws:sqs:us-east-1:" + ACCOUNT + ":";
+        user.policy("{\"Effect\":\"Allow\",\"Action\":\"events:PutTargets\",\"Resource\":\"*\",\"Condition\":{"
+                + "\"ForAllValues:ArnLike\":{\"events:TargetArn\":\"" + queue + "allowed-*\"}}}");
+        targets(user, rule, queue + "allowed-a", queue + "allowed-b").statusCode(200);
+        refusedJson(targets(user, rule, queue + "allowed-a", queue + "other"), "events:PutTargets");
+    }
+
+    /** {@code PutRule} of a rule of the name on the default bus with the event pattern, as {@code user}. */
+    private static ValidatableResponse patternRule(User user, String name, String pattern) {
+        return user.json("events", "AWSEvents.PutRule", "1.1").body("{\"Name\":\"" + name + "\",\"EventPattern\":\""
+                + pattern.replace("\"", "\\\"") + "\"}").post("/").then();
+    }
+
+    /** {@code PutTargets} of one target for each ARN on the rule, as {@code user}. */
+    private static ValidatableResponse targets(User user, String rule, String... arns) {
+        StringBuilder targets = new StringBuilder();
+        for (int i = 0; i < arns.length; i++) {
+            targets.append(i == 0 ? "" : ",").append("{\"Id\":\"t").append(i).append("\",\"Arn\":\"").append(arns[i])
+                    .append("\"}");
+        }
+        return user.json("events", "AWSEvents.PutTargets", "1.1").body("{\"Rule\":\"" + rule + "\",\"Targets\":["
+                + targets + "]}").post("/").then();
+    }
+
     /** Puts a rule of the name on the bus {@code bus} names, a JSON member or none, and gives its ARN. */
     private String putRule(String name, String bus) {
         String arn = admin("events").header("X-Amz-Target", "AWSEvents.PutRule").contentType("application/x-amz-json-1.1")

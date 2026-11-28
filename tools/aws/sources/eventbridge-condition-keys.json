@@ -1,0 +1,75 @@
+{
+  "_source": {
+    "page": "https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-use-conditions.html",
+    "fetcher": "tools/aws/fetch_eventbridge_conditions.py",
+    "retrieved": "2026-11-28",
+    "note": "Each EventBridge key whose row of the page's table of condition keys names a field of the event, read from PutRule's EventPattern (field), or the ARN of the target, read from PutTargets' Targets[].Arn, with the row and the page's sentences saying so, copied as they stand."
+  },
+  "keys": [
+    {
+      "key": "events:detail-type",
+      "operation": "PutRule",
+      "member": "EventPattern",
+      "field": "detail-type",
+      "row": "\"events:detail-type\":\" detail-type \" Where detail-type is the literal string for the detail-type field of the event such as \"AWS API Call via CloudTrail\" and \"EC2 Instance State-change Notification\".",
+      "says": [
+        "PutRule only if the event pattern of the rule being created matches Amazon EC2 events.",
+        "EventPattern is a mandatory argument to PutRule."
+      ]
+    },
+    {
+      "key": "events:detail.eventTypeCode",
+      "operation": "PutRule",
+      "member": "EventPattern",
+      "field": "detail.eventTypeCode",
+      "row": "\"events:detail.eventTypeCode\":\" eventTypeCode \" For eventTypeCode, use the literal string for the detail.eventTypeCode field of the event, such as \"AWS_ABUSE_DOS_REPORT\".",
+      "says": [
+        "PutRule only if the event pattern of the rule being created matches Amazon EC2 events.",
+        "EventPattern is a mandatory argument to PutRule."
+      ]
+    },
+    {
+      "key": "events:detail.service",
+      "operation": "PutRule",
+      "member": "EventPattern",
+      "field": "detail.service",
+      "row": "\"events:detail.service\":\" service \" For service, use the literal string for the detail.service field of the event, such as \"ABUSE\".",
+      "says": [
+        "PutRule only if the event pattern of the rule being created matches Amazon EC2 events.",
+        "EventPattern is a mandatory argument to PutRule."
+      ]
+    },
+    {
+      "key": "events:detail.userIdentity.principalId",
+      "operation": "PutRule",
+      "member": "EventPattern",
+      "field": "detail.userIdentity.principalId",
+      "row": "\"events:detail.userIdentity.principalId\":\" principal-id \" For principal-id, use the literal string for the detail.userIdentity.principalId field of the event with detail-type \"AWS API Call via CloudTrail\" such as \"AROAIDPPEZS35WEXAMPLE:AssumedRoleSessionName.\".",
+      "says": [
+        "PutRule only if the event pattern of the rule being created matches Amazon EC2 events.",
+        "EventPattern is a mandatory argument to PutRule."
+      ]
+    },
+    {
+      "key": "events:source",
+      "operation": "PutRule",
+      "member": "EventPattern",
+      "field": "source",
+      "row": "\"events:source\":\" source \" Use source for the literal string for the source field of the event such as \"aws.ec2\" or \"aws.s3\". For more possible values for source, see the example events in Events from AWS services.",
+      "says": [
+        "PutRule only if the event pattern of the rule being created matches Amazon EC2 events.",
+        "EventPattern is a mandatory argument to PutRule."
+      ]
+    },
+    {
+      "key": "events:TargetArn",
+      "operation": "PutTargets",
+      "member": "Targets.*.Arn",
+      "row": "\"events:TargetArn\":\" target-arn \" For target-arn, use the ARN of the target for the rule, for example \"arn:aws:lambda:*:*:function:*\".",
+      "says": [
+        "permissions for the events:PutTargets action because, if you want the rule to do more than publish a CloudWatch metric, you must also add a target to a rule.",
+        "To grant access to a specific resource, use the events:TargetArn condition key."
+      ]
+    }
+  ]
+}

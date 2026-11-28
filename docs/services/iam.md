@@ -4173,6 +4173,22 @@ floci populates:
   `ForAllValues:StringEquals` with `Null` set to `false` to require every change to match. The actions, the
   request members, their botocore shapes and the request protocol come from the same
   `request-condition-keys.json`, and Route 53 spells the names as its `DNSName` shape.
+- `events:source`, `events:detail-type`, `events:detail.service`, `events:detail.eventTypeCode` and
+  `events:detail.userIdentity.principalId`: each literal string a `PutRule` request's event pattern gives the
+  event's field of that name, and `events:TargetArn`: the `Arn` of each target a `PutTargets` request adds, not its
+  dead-letter queue's. A pattern leaving a field out names nothing, so `ForAllValues` allows it and a `Null` check
+  on the key refuses it, as the
+  [EventBridge condition keys](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-use-conditions.html)
+  page shows. The fields are read at the pattern's top level, where every example on the page gives them, so a
+  `$or` branch's names nothing; a matcher in the pattern (`{"prefix": "aws."}`) is no literal string and names
+  nothing. Neither
+  botocore nor the Service Reference says which member carries these keys, so a vendored source,
+  `tools/aws/sources/eventbridge-condition-keys.json`, written by `tools/aws/fetch_eventbridge_conditions.py` from
+  that page, gives each: a key whose row is "the literal string for the source field of the event" reads that field
+  of `PutRule`'s `EventPattern` ("EventPattern is a mandatory argument to PutRule"), and `events:TargetArn`, "the
+  ARN of the target for the rule", reads `Targets[].Arn`. `PutEvents`, `CreateEventSource` and `UpdateEventSource`
+  take `events:source` too, which the page does not describe, so they are not read there. The actions and members
+  come from the same `request-condition-keys.json`.
 - `eks:authenticationMode`, `eks:bootstrapClusterCreatorAdminPermissions`, `eks:endpointPrivateAccess` and
   `eks:endpointPublicAccess`: the `accessConfig` and `resourcesVpcConfig` members a `CreateCluster` request
   names, and the three an `UpdateClusterConfig` takes, read from the JSON body as given; a member left out or

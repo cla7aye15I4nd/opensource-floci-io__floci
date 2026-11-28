@@ -1,5 +1,6 @@
 package io.floci.aws.core.common;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -70,6 +71,8 @@ public class IamConditionContextResolver {
     private static final Logger LOG = Logger.getLogger(IamConditionContextResolver.class);
     /** Reads a resource EC2 holds as its fields, java.time ones included. */
     private static final ObjectMapper RESOURCE_MAPPER = new ObjectMapper().findAndRegisterModules();
+    /** Reads the JSON document a request member holds as a string (an EventBridge rule's event pattern). */
+    private static final ObjectMapper DOCUMENT_MAPPER = new ObjectMapper();
 
     /** Set by {@code ResourceArnBuilder.readJsonBody}, which runs earlier in the same filter pass. */
     static final String BUFFERED_JSON_BODY = "floci.bufferedJsonBody";
@@ -483,11 +486,33 @@ public class IamConditionContextResolver {
             if (body == null) {
                 return null;
             }
-            values = member -> jsonValues(body, member.split("\\."), 0, new ArrayList<>());
+            values = member -> memberValues(body, member);
         } else {
             return null;
         }
         return requestConditions(action, values, requestConditionSpelling(namespace));
+    }
+
+    /**
+     * The scalar values of the member at {@code member} in a JSON body, a path as the table writes it: the values at
+     * the path ({@link #jsonValues}), or, for a string member holding a JSON document, the path after {@code #} read
+     * in each document it holds (an EventBridge rule's {@code EventPattern#source.*}, the literal strings of its
+     * {@code source}). A document that is not JSON, which the handler refuses, names nothing.
+     */
+    private static List<String> memberValues(JsonNode body, String member) {
+        int document = member.indexOf('#');
+        if (document < 0) {
+            return jsonValues(body, member.split("\\."), 0, new ArrayList<>());
+        }
+        List<String> found = new ArrayList<>();
+        for (String text : jsonValues(body, member.substring(0, document).split("\\."), 0, new ArrayList<>())) {
+            try {
+                jsonValues(DOCUMENT_MAPPER.readTree(text), member.substring(document + 1).split("\\."), 0, found);
+            } catch (JsonProcessingException ignored) {
+                // A document that is not JSON names nothing; the handler refuses the request.
+            }
+        }
+        return found;
     }
 
     /**
