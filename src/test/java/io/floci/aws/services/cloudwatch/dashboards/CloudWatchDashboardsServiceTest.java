@@ -2,6 +2,7 @@ package io.floci.aws.services.cloudwatch.dashboards;
 
 import io.floci.aws.core.common.AwsException;
 import io.floci.aws.core.common.RegionResolver;
+import io.floci.aws.core.storage.AccountAwareStorageBackend;
 import io.floci.aws.core.storage.InMemoryStorage;
 import io.floci.aws.services.cloudwatch.dashboards.model.Dashboard;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -118,13 +120,17 @@ class CloudWatchDashboardsServiceTest {
         assertEquals(3, service.listDashboards(null, REGION).size());
     }
 
+    // Catches: dashboards kept per Region; AWS keeps them global per account.
     @Test
-    void listDashboardsIsScopedToRegion() {
+    void aDashboardPutInOneRegionIsTheSameDashboardInEveryRegion() {
         service.putDashboard("ops", BODY, REGION);
-        service.putDashboard("ops", BODY, "eu-west-1");
+        service.putDashboard("ops", "{\"widgets\":[]}", "eu-west-1");
 
         assertEquals(1, service.listDashboards(null, REGION).size());
-        assertEquals(1, service.listDashboards(null, "eu-west-1").size());
+        assertEquals("{\"widgets\":[]}", service.getDashboard("ops", REGION).getDashboardBody());
+
+        service.deleteDashboards(List.of("ops"), "ap-southeast-2");
+        assertTrue(service.listDashboards(null, "eu-west-1").isEmpty());
     }
 
     @Test
@@ -196,18 +202,130 @@ class CloudWatchDashboardsServiceTest {
         assertEquals(Map.of(), service.listTagsForResource(regionless, REGION));
     }
 
-    /**
-     * The old region-ful form resolves only for the Region the dashboard was put through. An
-     * ARN naming a different Region must not resolve to the same-named dashboard in this one.
-     */
+    /** A dashboard is global per account, so an old region-ful ARN naming any Region resolves. */
     @Test
-    void anArnNamingAnotherRegionDoesNotResolve() {
+    void anOldRegionfulArnNamingAnotherRegionResolves() {
         service.putDashboard("ops", BODY, REGION);
         String elsewhere = "arn:aws:cloudwatch:eu-west-1:000000000000:dashboard/ops";
 
-        AwsException e = assertThrows(AwsException.class,
-                () -> service.listTagsForResource(elsewhere, REGION));
-        assertEquals("ResourceNotFoundException", e.getErrorCode());
+        service.tagResource(elsewhere, Map.of("env", "dev"), REGION);
+        assertEquals(Map.of("env", "dev"), service.listTagsForResource(elsewhere, "eu-west-1"));
+    }
+
+    // Catches: dashboards persisted under the old region::name keys vanishing, or folding into
+    // an arbitrary copy when one name was stored in two Regions.
+    @Test
+    void legacyRegionKeysFoldOntoTheNameKeepingTheMostRecentlyModifiedCopy() {
+        InMemoryStorage<String, Dashboard> store = new InMemoryStorage<>();
+        store.put("us-east-1::ops", legacyDashboard("ops", "us-east-1", "{\"v\":\"old\"}", 100));
+        store.put("eu-west-1::ops", legacyDashboard("ops", "eu-west-1", "{\"v\":\"new\"}", 200));
+        store.put("eu-west-1::solo", legacyDashboard("solo", "eu-west-1", BODY, 50));
+
+        CloudWatchDashboardsService folded = new CloudWatchDashboardsService(store,
+                new RegionResolver(REGION, "000000000000"));
+
+        assertEquals(Set.of("ops", "solo"), store.keys());
+        assertEquals("{\"v\":\"new\"}", folded.getDashboard("ops", "eu-west-1").getDashboardBody());
+        assertEquals("arn:aws:cloudwatch::000000000000:dashboard/ops",
+                folded.getDashboard("ops", "ap-southeast-2").getDashboardArn());
+        assertEquals(List.of("ops", "solo"),
+                folded.listDashboards(null, REGION).stream().map(Dashboard::getDashboardName).toList());
+    }
+
+    @Test
+    void aLegacyTieGoesToTheRegionThatSortsFirst() {
+        InMemoryStorage<String, Dashboard> store = new InMemoryStorage<>();
+        store.put("us-west-2::ops", legacyDashboard("ops", "us-west-2", "{\"r\":\"us-west-2\"}", 100));
+        store.put("ap-south-1::ops", legacyDashboard("ops", "ap-south-1", "{\"r\":\"ap-south-1\"}", 100));
+
+        CloudWatchDashboardsService folded = new CloudWatchDashboardsService(store,
+                new RegionResolver(REGION, "000000000000"));
+
+        assertEquals("{\"r\":\"ap-south-1\"}", folded.getDashboard("ops", "eu-west-1").getDashboardBody());
+    }
+
+    @Test
+    void legacyRegionKeysFoldInEveryAccount() {
+        AccountAwareStorageBackend<Dashboard> store = AccountAwareStorageBackend.inMemory("000000000000");
+        store.putForAccount("000000000000", "us-east-1::ops", legacyDashboard("ops", "us-east-1", BODY, 100));
+        store.putForAccount("111111111111", "eu-west-1::ops", legacyDashboard("ops", "eu-west-1", BODY, 100));
+
+        new CloudWatchDashboardsService(store, new RegionResolver(REGION, "000000000000"));
+
+        assertTrue(store.getForAccount("000000000000", "ops").isPresent());
+        assertTrue(store.getForAccount("111111111111", "ops").isPresent());
+        assertTrue(store.getForAccount("000000000000", "us-east-1::ops").isEmpty());
+        assertTrue(store.getForAccount("111111111111", "eu-west-1::ops").isEmpty());
+    }
+
+    /**
+     * A dashboard saved before stores kept accounts apart sits under a bare {@code region::name} key of the default
+     * account. Folding it must remove that exact key, or a later delete of the dashboard is undone by the next load.
+     */
+    @Test
+    void aDeletedDashboardFoldedFromABareLegacyKeyStaysDeletedAfterReload() {
+        InMemoryStorage<String, Dashboard> raw = new InMemoryStorage<>();
+        raw.put("us-east-1::ops", legacyDashboard("ops", "us-east-1", BODY, 100));
+        AccountAwareStorageBackend<Dashboard> store = new AccountAwareStorageBackend<>(raw, null, "000000000000");
+        CloudWatchDashboardsService first = new CloudWatchDashboardsService(store,
+                new RegionResolver(REGION, "000000000000"));
+
+        assertEquals(Set.of("000000000000/ops"), raw.keys());
+        first.deleteDashboards(List.of("ops"), REGION);
+        new CloudWatchDashboardsService(store, new RegionResolver(REGION, "000000000000"));
+
+        assertEquals(Set.of(), raw.keys());
+    }
+
+    /** As recorded against AWS: a name outside alphanumerics, dash and underscore is refused. */
+    @Test
+    void aNameWithACharacterOutsideTheAllowedSetIsRefused() {
+        for (String name : List.of("prod::copy", "with space", "dot.ted")) {
+            AwsException refused = assertThrows(AwsException.class, () -> service.putDashboard(name, BODY, REGION));
+            assertEquals("InvalidParameterValue", refused.getErrorCode());
+            assertEquals("The value for field DashboardName contains invalid characters. It can only contain "
+                    + "alphanumerics, dash (-) and underscore (_).\n", refused.getMessage());
+        }
+        assertTrue(service.listDashboards(null, REGION).isEmpty());
+    }
+
+    /**
+     * Floci serves a Region a partition's pattern admits, or any Region with {@code allow-unknown-regions}, so a
+     * dashboard stored per Region may sit under a Region no catalog publishes. It folds like any other.
+     */
+    @Test
+    void legacyKeysOfRegionsNoCatalogPublishesFoldToo() {
+        InMemoryStorage<String, Dashboard> store = new InMemoryStorage<>();
+        store.put("us-east-5::ops", legacyDashboard("ops", "us-east-5", BODY, 100));
+        store.put("local::solo", legacyDashboard("solo", "local", BODY, 100));
+
+        CloudWatchDashboardsService folded = new CloudWatchDashboardsService(store,
+                new RegionResolver(REGION, "000000000000"));
+
+        assertEquals(Set.of("ops", "solo"), store.keys());
+        assertEquals("ops", folded.getDashboard("ops", REGION).getDashboardName());
+    }
+
+    /**
+     * A key stored per Region ends in the dashboard's own name after the separator. A name an older Floci accepted
+     * with the separator in it, once folded, is its whole key, so it stays where it is on the next load.
+     */
+    @Test
+    void aFoldedNameHoldingTheSeparatorIsNotFoldedAgain() {
+        InMemoryStorage<String, Dashboard> store = new InMemoryStorage<>();
+        store.put("prod::copy", new Dashboard("prod::copy",
+                "arn:aws:cloudwatch::000000000000:dashboard/prod::copy", BODY));
+
+        new CloudWatchDashboardsService(store, new RegionResolver(REGION, "000000000000"));
+
+        assertEquals(Set.of("prod::copy"), store.keys());
+    }
+
+    private static Dashboard legacyDashboard(String name, String region, String body, long lastModified) {
+        Dashboard dashboard = new Dashboard(name,
+                "arn:aws:cloudwatch:" + region + ":000000000000:dashboard/" + name, body);
+        dashboard.setLastModified(lastModified);
+        return dashboard;
     }
 
     /**
