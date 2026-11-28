@@ -260,6 +260,14 @@ class TagOnCreateTest {
                 .orElseThrow();
         assertEquals(List.of(Map.of("aws:RequestTag/team", List.of("blue"), "aws:TagKeys", List.of("team"))),
                 TagOnCreate.requestTagContexts(queue));
+        Tagging quote = TagOnCreate.of("ec2:CreateCapacityReservationDateChangeQuote",
+                form("Action=CreateCapacityReservationDateChangeQuote"
+                        + "&TagSpecification.1.ResourceType=capacity-reservation-modification-quote"
+                        + "&TagSpecification.1.Tag.1.Key=team&TagSpecification.1.Tag.1.Value=blue")).orElseThrow();
+        assertTrue(quote.requestTags());
+        assertEquals(List.of(Map.of("aws:RequestTag/team", List.of("blue"), "aws:TagKeys", List.of("team"))),
+                TagOnCreate.requestTagContexts(quote));
+        assertEquals("ec2:CreateTags", quote.action());
         // RDS lists aws:RequestTag for neither ModifyDBInstance nor its resources, only for the tagging action.
         assertFalse(TagOnCreate.of("rds:ModifyDBInstance", form("Action=ModifyDBInstance&DBInstanceIdentifier=d"
                 + "&TagSpecifications.item.1.ResourceType=auto-backup&TagSpecifications.item.1.Tags.Tag.1.Key=team"
