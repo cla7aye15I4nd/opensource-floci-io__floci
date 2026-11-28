@@ -2117,6 +2117,23 @@ public class EventBridgeService implements ResourceProvider, StoredResourceArns 
                 .map(TagResource::tags).map(LinkedHashMap::new).orElseGet(LinkedHashMap::new);
     }
 
+    /**
+     * The secret a connection stored under {@code arn}, in the account and Region the ARN names, keeps its
+     * credentials in, for {@code SecretArn} as botocore names that member of {@code DescribeConnection}'s output;
+     * empty for any other member or an ARN naming no connection held under that whole ARN. A connection the default
+     * account saved before stores kept accounts apart is found where it is, as the HTTP call that uses it finds it.
+     */
+    @Override
+    public Optional<String> recorded(String arn, String member) {
+        if (!"SecretArn".equals(member) || !AwsArnUtils.isArnFor(arn, "events")) {
+            return Optional.empty();
+        }
+        AwsArnUtils.Arn parsed = AwsArnUtils.parse(arn);
+        return connectionNamedBy(arn, parsed.region(), parsed.accountId())
+                .map(Connection::getSecretArn)
+                .filter(secret -> !secret.isBlank());
+    }
+
     /** The Region's default event bus, which a request naming no bus acts on. */
     @Override
     public Optional<String> findDefault(String type, String region) {
@@ -2439,25 +2456,57 @@ public class EventBridgeService implements ResourceProvider, StoredResourceArns 
         return connectionByArn(connectionArn, region, null);
     }
 
+    /**
+     * The connection {@code connectionArn} names, looked up by its name in the ARN's Region ({@code region} when the ARN
+     * names none) and held under that whole ARN: the ARN carries a generated id, so one for a connection deleted and
+     * recreated under the same name does not match. {@code accountId} reads it in that account, in place, also finding
+     * one the default account saved before stores kept accounts apart; null reads it in the request's account, moving
+     * such a legacy connection into that account only when it is the account the ARN names. A connection belongs to
+     * the account its ARN names, so a request of another account finds none, which keeps this lookup and the one in
+     * the ARN's account, which an HTTP task's secret permissions read, in agreement.
+     */
+    private Optional<Connection> connectionNamedBy(String connectionArn, String region, String accountId) {
+        if (!AwsArnUtils.isArn(connectionArn)) {
+            return Optional.empty();
+        }
+        AwsArnUtils.Arn parsed = AwsArnUtils.parse(connectionArn);
+        if (!parsed.resource().startsWith("connection/")) {
+            return Optional.empty();
+        }
+        String reader = accountId == null ? regionResolver.getAccountId() : accountId;
+        if (!reader.equals(parsed.accountId())) {
+            return Optional.empty();
+        }
+        String remainder = parsed.resource().substring("connection/".length());
+        int slash = remainder.indexOf('/');
+        String name = slash > 0 ? remainder.substring(0, slash) : remainder;
+        String key = connectionKey(parsed.region().isEmpty() ? region : parsed.region(), name);
+        Optional<Connection> stored;
+        if (accountId != null) {
+            stored = readInAccount(connectionStore, accountId, key);
+        } else if (connectionStore instanceof AccountAwareStorageBackend<Connection> accounts) {
+            stored = accounts.getForAccountMigratingLegacy(reader, key,
+                    legacy -> connectionArn.equals(legacy.getConnectionArn()));
+        } else {
+            stored = connectionStore.get(key);
+        }
+        return stored.filter(connection -> connectionArn.equals(connection.getConnectionArn()));
+    }
+
     /** {@code verb} names the failing api-destination call in the not-found message, as AWS words it; null keeps the plain wording for internal callers. */
     private Connection connectionByArn(String connectionArn, String region, String verb) {
         if (connectionArn == null || connectionArn.isBlank()) {
             throw new AwsException("ResourceNotFoundException", "Connection ARN is required.", 400);
         }
-        if (AwsArnUtils.isArn(connectionArn)) {
-            AwsArnUtils.Arn parsed = AwsArnUtils.parse(connectionArn);
-            String resource = parsed.resource();
-            if (resource.startsWith("connection/")) {
-                String remainder = resource.substring("connection/".length());
-                int slash = remainder.indexOf('/');
-                String name = slash > 0 ? remainder.substring(0, slash) : remainder;
-                String connRegion = parsed.region().isEmpty() ? region : parsed.region();
-                Optional<Connection> opt = connectionStore.get(connectionKey(connRegion, name));
-                // The ARN carries a generated id: one for a connection deleted and recreated under the same name must not match
-                if (opt.isPresent() && connectionArn.equals(opt.get().getConnectionArn())) {
-                    return opt.get();
-                }
-            }
+        Optional<Connection> named = connectionNamedBy(connectionArn, region, null);
+        if (named.isPresent()) {
+            return named.get();
+        }
+        if (AwsArnUtils.isArn(connectionArn)
+                && !regionResolver.getAccountId().equals(AwsArnUtils.parse(connectionArn).accountId())) {
+            throw verb == null
+                    ? EventBridgeErrors.plainConnectionNotFound(connectionArn)
+                    : EventBridgeErrors.apiDestinationConnectionNotFound(verb, connectionArn);
         }
         return connectionStore.scan(k -> {
             Connection c = connectionStore.get(k).orElse(null);
