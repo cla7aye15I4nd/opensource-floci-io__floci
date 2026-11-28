@@ -704,12 +704,13 @@ class RequestResourceMembersTest {
     }
 
     /**
-     * The ARNs a resource in another account by its account member names, each followed by the caller's
-     * resource of that name, which the reader names too, as it names an ARN of another account, the test's services
-     * acting on none of them in that account.
+     * The ARNs a resource in another account names, by its account member or by an ARN of a format giving its account
+     * as written (Backup's recovery point, {@code *}), each followed by the caller's resource of that name, which the
+     * reader names too, as it names an ARN of another account, the test's services acting on none of them in that
+     * account; one AWS owns, in the account {@code aws}, is checked in that account alone.
      */
     private static List<String> withTheCallersToo(List<String> arns, Resource resource) {
-        if (resource.account() == null || !resource.find().isEmpty()) {
+        if (resource.account() == null && resource.arn() == null || !resource.find().isEmpty()) {
             return arns;
         }
         List<String> named = new ArrayList<>();
@@ -717,7 +718,8 @@ class RequestResourceMembersTest {
             named.add(arn);
             if (AwsArnUtils.isArn(arn)) {
                 AwsArnUtils.Arn parsed = AwsArnUtils.parse(arn);
-                if (!parsed.accountId().isEmpty() && !"000000000000".equals(parsed.accountId())) {
+                if (!parsed.accountId().isEmpty() && !"000000000000".equals(parsed.accountId())
+                        && !"aws".equals(parsed.accountId())) {
                     named.add(new AwsArnUtils.Arn(parsed.partition(), parsed.service(), parsed.region(),
                             "000000000000", parsed.resource()).toString());
                 }

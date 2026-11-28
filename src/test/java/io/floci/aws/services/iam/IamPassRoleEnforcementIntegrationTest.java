@@ -230,6 +230,27 @@ class IamPassRoleEnforcementIntegrationTest {
     }
 
     @Test
+    void aBackupJobNeedsPassRoleOnItsRoleForBackup() {
+        // The Service Reference passes StartBackupJob's role to Backup alone.
+        String role = role("backup-service");
+        User user = user("passrole-backup");
+        String vault = "passrole-vault-" + suffix();
+        admin("backup").contentType("application/json").body("{}").put("/backup-vaults/" + vault).then()
+                .statusCode(200);
+        cleanup.register(() -> admin("backup").delete("/backup-vaults/" + vault));
+        String job = "{\"BackupVaultName\":\"" + vault + "\",\"ResourceArn\":\"arn:aws:dynamodb:us-east-1:" + ACCOUNT
+                + ":table/passrole-backup\",\"IamRoleArn\":\"" + role + "\"}";
+        String start = allow("backup:StartBackupJob", "*");
+
+        user.policy(start);
+        denied(user.rest("backup").body(job).put("/backup-jobs").then());
+        user.policy(start + "," + passRole(role, "ec2.amazonaws.com"));
+        denied(user.rest("backup").body(job).put("/backup-jobs").then());
+        user.policy(start + "," + passRole(role, "backup.amazonaws.com"));
+        user.rest("backup").body(job).put("/backup-jobs").then().statusCode(200);
+    }
+
+    @Test
     void apiGatewayNeedsPassRoleOnTheRolesAnIntegrationAnUpdateOrAnImportNames() {
         // API Gateway is authorized by HTTP method, and its roles are checked for the operation its route resolves:
         // PutIntegration's credentials, the role an UpdateIntegration's patch operation sets, and an imported

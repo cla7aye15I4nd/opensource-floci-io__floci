@@ -42,13 +42,13 @@ class AbstractTagsControllerTest {
         UriInfo uriInfo = mock(UriInfo.class);
         String arn = "arn:aws:apigateway:us-east-1::/restapis/123";
         Response expected = Response.ok().build();
-        when(dispatcher.resolveHandler(arn, uriInfo)).thenReturn(handler);
+        when(dispatcher.resolveHandler(arn, uriInfo, "GET")).thenReturn(handler);
         when(dispatcher.listTagsForArn(headers, arn)).thenReturn(expected);
 
         Response actual = controller.listTags(headers, uriInfo, arn);
 
         assertEquals(expected, actual);
-        verify(dispatcher).resolveHandler(arn, uriInfo);
+        verify(dispatcher).resolveHandler(arn, uriInfo, "GET");
         verify(dispatcher).listTagsForArn(headers, arn);
     }
 
@@ -58,7 +58,7 @@ class AbstractTagsControllerTest {
         UriInfo uriInfo = mock(UriInfo.class);
         String arn = "arn:aws:scheduler:us-east-1:000000000000:schedule-group/reports";
         AwsException refused = new AwsException("BadRequestException", "Invalid resource ARN: " + arn, 400);
-        when(dispatcher.resolveHandler(arn, uriInfo)).thenThrow(refused);
+        when(dispatcher.resolveHandler(arn, uriInfo, "GET")).thenThrow(refused);
 
         assertSame(refused, assertThrows(AwsException.class, () -> controller.listTags(headers, uriInfo, arn)));
         verify(dispatcher, never()).listTagsForArn(any(), any());
@@ -70,7 +70,7 @@ class AbstractTagsControllerTest {
         String arn = "arn:aws:kafka:us-east-1:000000000000:cluster/test/id";
         String body = "{\"tags\":{\"env\":\"test\"}}";
         UriInfo uriInfo = mock(UriInfo.class);
-        when(dispatcher.resolveHandler(arn, uriInfo)).thenReturn(handler);
+        when(dispatcher.resolveHandler(arn, uriInfo, "POST")).thenReturn(handler);
         when(handler.tagResourceSuccessStatus()).thenReturn(204);
         Response expected = Response.noContent().build();
         when(dispatcher.tagResourcePost(eq(headers), eq(arn), eq(body), any(Response.class))).thenReturn(expected);
@@ -87,7 +87,7 @@ class AbstractTagsControllerTest {
         String arn = "arn:aws:apigateway:us-east-1::/restapis/123";
         String body = "{\"tags\":{\"env\":\"test\"}}";
         UriInfo uriInfo = mock(UriInfo.class);
-        when(dispatcher.resolveHandler(arn, uriInfo)).thenReturn(handler);
+        when(dispatcher.resolveHandler(arn, uriInfo, "PUT")).thenReturn(handler);
         when(handler.tagResourceSuccessStatus()).thenReturn(200);
         Response expected = Response.ok().build();
         when(dispatcher.tagResourcePut(eq(headers), eq(arn), eq(body), any(Response.class))).thenReturn(expected);
@@ -103,7 +103,7 @@ class AbstractTagsControllerTest {
         HttpHeaders headers = mock(HttpHeaders.class);
         UriInfo uriInfo = mock(UriInfo.class);
         String arn = "arn:aws:apigateway:us-east-1::/restapis/123";
-        when(dispatcher.resolveHandler(arn, uriInfo)).thenReturn(handler);
+        when(dispatcher.resolveHandler(arn, uriInfo, "DELETE")).thenReturn(handler);
         when(handler.untagResourceSuccessStatus()).thenReturn(204);
         Response expected = Response.noContent().build();
         when(dispatcher.untagResourceForArn(eq(headers), eq(uriInfo), eq(arn), any(Response.class), eq(handler)))

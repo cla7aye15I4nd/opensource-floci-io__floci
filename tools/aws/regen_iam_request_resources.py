@@ -390,7 +390,7 @@ NAMESPACES = ("access-analyzer", "account", "acm", "appconfig", "application-aut
               "sqs", "sns", "kinesis", "pipes", "dsql", "sts", "eks", "resource-groups", "logs", "ses", "cloudwatch",
               "comprehend", "config", "dms", "elasticache", "identitystore", "memorydb", "route53resolver",
               "sagemaker", "transcribe", "transfer", "ec2-instance-connect", "s3", "bedrock", "apigateway", "kms",
-              "dynamodb", "iam", "rds-data", "batch", "appsync")
+              "dynamodb", "iam", "rds-data", "batch", "appsync", "backup")
 
 # ---------------------------------------------------------------------------------------------------------------------
 # MEASURED: what AWS was measured to check where neither botocore nor the Service Reference says it.
@@ -655,7 +655,6 @@ NOT_COVERED: dict[str, str] = {
                    "`autoScalingGroup:<id>:autoScalingGroupName/<name>`, while Floci mints `autoScalingGroup:<name>`, "
                    "which other services (ECS capacity providers) read back; the mint is fixed first",
     "aws-marketplace": _LATER,
-    "backup": _REST,
     "bedrock-agentcore": _REST,
     "cloudhsm": "not read yet: its ARN formats end in ${CloudHsmClusterInstanceName} and "
                 "${CloudHsmBackupInstanceName}, names, while its requests give ClusterId and BackupId, ids, which the "

@@ -626,7 +626,8 @@ IAM_PASSED_ROLES_PATHS := src/main/resources/aws/iam-passed-roles.json $(IAM_PAS
 	tools/aws/test_fetch_eks_roles.py tools/aws/sources/emr-roles.json tools/aws/fetch_emr_roles.py \
 	tools/aws/test_fetch_emr_roles.py tools/aws/sources/apigateway-roles.json tools/aws/fetch_apigateway_roles.py \
 	tools/aws/test_fetch_apigateway_roles.py tools/aws/sources/batch-roles.json tools/aws/fetch_batch_roles.py \
-	tools/aws/test_fetch_batch_roles.py
+	tools/aws/test_fetch_batch_roles.py tools/aws/sources/backup-roles.json tools/aws/fetch_backup_roles.py \
+	tools/aws/test_fetch_backup_roles.py
 IAM_PASSED_NETWORK_CONNECTORS_PATHS := src/main/resources/aws/iam-passed-network-connectors.json \
 	tools/aws/regen_iam_passed_network_connectors.py $(IAM_PASSED_ROLES_GENERATOR) \
 	tools/aws/test_regen_iam_passed_network_connectors.py

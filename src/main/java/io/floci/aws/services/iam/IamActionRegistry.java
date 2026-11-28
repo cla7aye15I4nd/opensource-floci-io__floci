@@ -227,6 +227,17 @@ public class IamActionRegistry {
                 || routes.takesPath(credentialScope, sentPath(uriInfo), uriInfo.getQueryParameters());
     }
 
+    /**
+     * Whether a request of the method sent to the URI {@code uriInfo} gives is a route of the credential scope's
+     * vendored model, its path matched as {@link #modelRoutes(String, UriInfo)} matches it. True for a scope whose
+     * routes are not vendored.
+     */
+    public static boolean modelRoutes(String credentialScope, String method, UriInfo uriInfo) {
+        IamRestRoutes routes = IamRestRoutes.vendored();
+        return !routes.routes(credentialScope)
+                || routes.takesRoute(credentialScope, method, sentPath(uriInfo), uriInfo.getQueryParameters());
+    }
+
     /** Keep the modeled operation when AWS authorizes its route under a different action name. */
     public String operationForRoute(String credentialScope, String action, ContainerRequestContext ctx) {
         if (credentialScope == null || action == null) {

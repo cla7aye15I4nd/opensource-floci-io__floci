@@ -1895,6 +1895,69 @@ class IamRestRouteEnforcementIntegrationTest {
     }
 
     /** A statement with {@code effect} on {@code action} for every resource whose {@code team} tag is the one given. */
+    /**
+     * A Backup route is checked on the backup vault or the backup plan it names, by the name or the id its path gives,
+     * an {@code aws:ResourceTag} condition reads the tags Backup holds on it, and a vault created with tags needs
+     * {@code backup:TagResource}.
+     */
+    @Test
+    void aBackupRouteIsCheckedOnTheVaultOrPlanItNames() {
+        String user = user("route-backup");
+        String tagged = backupVault("route-vault-" + suffix(), "data");
+        String other = backupVault("route-vault-" + suffix(), "web");
+        String prefix = "arn:aws:backup:us-east-1:" + ACCOUNT + ":";
+
+        policy(user, allow("backup:DescribeBackupVault", prefix + "backup-vault:" + tagged));
+        request(user, "backup", "GET", "/backup-vaults/" + tagged, null).statusCode(200);
+        refused(request(user, "backup", "GET", "/backup-vaults/" + other, null), "backup:DescribeBackupVault");
+        policy(user, onTeam("Allow", "backup:DescribeBackupVault", "data"));
+        request(user, "backup", "GET", "/backup-vaults/" + tagged, null).statusCode(200);
+        refused(request(user, "backup", "GET", "/backup-vaults/" + other, null), "backup:DescribeBackupVault");
+        // Backup untags on POST /untag/{arn}, so the shared DELETE /tags/{arn}, which no Backup operation is and so no
+        // action checks, is refused before it reaches the vault's tags.
+        String vaultTags = "/tags/" + encoded(prefix + "backup-vault:" + tagged);
+        request(user, "backup", "DELETE", vaultTags + "?tagKeys=team", null).statusCode(405)
+                .body(containsString("MethodNotAllowedException"));
+        adminOf("backup").urlEncodingEnabled(false).get(vaultTags).then().statusCode(200)
+                .body("Tags.team", equalTo("data"));
+
+        String plan = backupPlan(tagged, "data");
+        String otherPlan = backupPlan(tagged, "web");
+        policy(user, allow("backup:GetBackupPlan", prefix + "backup-plan:" + plan));
+        request(user, "backup", "GET", "/backup/plans/" + plan + "/", null).statusCode(200);
+        refused(request(user, "backup", "GET", "/backup/plans/" + otherPlan + "/", null), "backup:GetBackupPlan");
+        policy(user, onTeam("Allow", "backup:GetBackupPlan", "data"));
+        request(user, "backup", "GET", "/backup/plans/" + plan + "/", null).statusCode(200);
+        refused(request(user, "backup", "GET", "/backup/plans/" + otherPlan + "/", null), "backup:GetBackupPlan");
+
+        String made = "route-vault-" + suffix();
+        cleanup.register(() -> adminOf("backup").delete("/backup-vaults/" + made));
+        policy(user, allow("backup:CreateBackupVault", "*"));
+        refused(request(user, "backup", "PUT", "/backup-vaults/" + made, "{\"BackupVaultTags\":{\"team\":\"data\"}}"),
+                "backup:TagResource");
+        policy(user, allow("backup:CreateBackupVault", "*") + "," + allow("backup:TagResource", "*"));
+        request(user, "backup", "PUT", "/backup-vaults/" + made, "{\"BackupVaultTags\":{\"team\":\"data\"}}")
+                .statusCode(200);
+    }
+
+    /** A backup vault an administrator creates, tagged with {@code team}; its name. */
+    private String backupVault(String name, String team) {
+        adminOf("backup").body("{\"BackupVaultTags\":{\"team\":\"" + team + "\"}}").put("/backup-vaults/" + name)
+                .then().statusCode(200);
+        cleanup.register(() -> adminOf("backup").delete("/backup-vaults/" + name));
+        return name;
+    }
+
+    /** A backup plan an administrator creates into {@code vault}, tagged with {@code team}; its id. */
+    private String backupPlan(String vault, String team) {
+        String id = adminOf("backup").body("{\"BackupPlan\":{\"BackupPlanName\":\"route-plan-" + suffix()
+                + "\",\"Rules\":[{\"RuleName\":\"daily\",\"TargetBackupVaultName\":\"" + vault + "\"}]},"
+                + "\"BackupPlanTags\":{\"team\":\"" + team + "\"}}").put("/backup/plans/").then().statusCode(200)
+                .extract().path("BackupPlanId");
+        cleanup.register(() -> adminOf("backup").delete("/backup/plans/" + id));
+        return id;
+    }
+
     private static String onTeam(String effect, String action, String team) {
         return "{\"Effect\":\"" + effect + "\",\"Action\":\"" + action + "\",\"Resource\":\"*\","
                 + "\"Condition\":{\"StringEquals\":{\"aws:ResourceTag/team\":\"" + team + "\"}}}";

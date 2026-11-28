@@ -108,6 +108,7 @@ OUTPUT = REPO_ROOT / "src/main/resources/aws/iam-tag-on-create.json"
 # protocols and Smithy RPC v2 CBOR, and the REST ones whose routes Floci authorizes by operation.
 NAMESPACES = (
     "access-analyzer", "acm", "appconfig", "application-autoscaling", "aps", "appsync", "athena", "autoscaling",
+    "backup",
     "bcm-data-exports", "bcm-pricing-calculator", "bedrock", "budgets", "ce", "cloudformation", "cloudhsm",
     "cloudtrail", "cloudwatch", "codedeploy", "codeguru-reviewer", "codepipeline", "cognito-identity", "cognito-idp",
     "comprehend", "config", "controltower", "cur",
@@ -128,7 +129,7 @@ _NO_ROUTES = "REST routes no rule maps yet"
 # why. `TagOnCreateNamespacesIntegrationTest` fails for a namespace Floci serves that is in neither list.
 NOT_COVERED = {
     "airflow": _NO_ROUTES, "app-integrations": _NO_ROUTES,
-    "aws-marketplace": _NO_ROUTES, "backup": _NO_ROUTES,
+    "aws-marketplace": _NO_ROUTES,
     "batch": "CreateComputeEnvironment is checked as batch:TagResource or batch:SetCapacityTags, and nothing says "
              "which of its tag members each is for",
     "bedrock-agentcore": _NO_ROUTES,

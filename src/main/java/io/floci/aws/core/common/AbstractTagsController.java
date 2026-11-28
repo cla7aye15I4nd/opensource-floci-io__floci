@@ -3,6 +3,7 @@ package io.floci.aws.core.common;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
@@ -36,7 +37,7 @@ public abstract class AbstractTagsController {
     @GET
     @Path("/{arn: .+}")
     public Response listTags(@Context HttpHeaders headers, @Context UriInfo uriInfo, @PathParam("arn") String arn) {
-        dispatcher.resolveHandler(arn, uriInfo);
+        dispatcher.resolveHandler(arn, uriInfo, HttpMethod.GET);
         return dispatcher.listTagsForArn(headers, arn);
     }
 
@@ -47,7 +48,7 @@ public abstract class AbstractTagsController {
                                     @Context UriInfo uriInfo,
                                     @PathParam("arn") String arn,
                                     String body) {
-        TagHandler handler = dispatcher.resolveHandler(arn, uriInfo);
+        TagHandler handler = dispatcher.resolveHandler(arn, uriInfo, HttpMethod.POST);
         return dispatcher.tagResourcePost(headers, arn, body,
                 Response.status(handler.tagResourceSuccessStatus()).build());
     }
@@ -59,7 +60,7 @@ public abstract class AbstractTagsController {
                                    @Context UriInfo uriInfo,
                                    @PathParam("arn") String arn,
                                    String body) {
-        TagHandler handler = dispatcher.resolveHandler(arn, uriInfo);
+        TagHandler handler = dispatcher.resolveHandler(arn, uriInfo, HttpMethod.PUT);
         return dispatcher.tagResourcePut(headers, arn, body,
                 Response.status(handler.tagResourceSuccessStatus()).build());
     }
@@ -69,7 +70,7 @@ public abstract class AbstractTagsController {
     public Response untagResource(@Context HttpHeaders headers,
                                   @Context UriInfo uriInfo,
                                   @PathParam("arn") String arn) {
-        TagHandler handler = dispatcher.resolveHandler(arn, uriInfo);
+        TagHandler handler = dispatcher.resolveHandler(arn, uriInfo, HttpMethod.DELETE);
         return dispatcher.untagResourceForArn(headers, uriInfo, arn,
                 Response.status(handler.untagResourceSuccessStatus()).build(), handler);
     }

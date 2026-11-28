@@ -1,0 +1,35 @@
+{
+  "_source": {
+    "pages": [
+      "https://docs.aws.amazon.com/aws-backup/latest/APIReference/API_StartScanJob.html",
+      "https://docs.aws.amazon.com/aws-backup/latest/devguide/malware-protection.html"
+    ],
+    "fetcher": "tools/aws/fetch_backup_roles.py",
+    "retrieved": "2026-11-28",
+    "note": "Each member's description on its API reference page, copied as it stands; the malware protection page's Access item naming its role (roleText); and from that item the service principal the role trusts, or else the operation whose role the guide says it is (sameRoleAs)."
+  },
+  "members": [
+    {
+      "operation": "StartScanJob",
+      "member": "IamRoleArn",
+      "description": "Specifies the IAM role ARN used to create the target recovery point; for example, arn:aws:iam::123456789012:role/S3Access .",
+      "rolePage": "https://docs.aws.amazon.com/aws-backup/latest/devguide/malware-protection.html",
+      "section": "Access",
+      "roleText": "First, the AWSBackupServiceRolePolicyForBackup or AWSBackupServiceRolePolicyForScans managed policy must be attached to your existing or new backup role. This is the same role found in the resource assignment for your backup plan in the console, or through the BackupSelection API . This managed policy allows AWS Backup to initiate malware scans with Amazon GuardDuty.",
+      "sameRoleAs": {
+        "operation": "CreateBackupSelection"
+      }
+    },
+    {
+      "operation": "StartScanJob",
+      "member": "ScannerRoleArn",
+      "description": "Specified the IAM scanner role ARN.",
+      "rolePage": "https://docs.aws.amazon.com/aws-backup/latest/devguide/malware-protection.html",
+      "section": "Access",
+      "roleText": "Second, a new scanner role is required with AWSBackupGuardDutyRolePolicyForScans managed policy that trusts malware-protection.guardduty.amazonaws.com . To create this role, you can specify a custom trust policy and attach the required managed policy. This is the same role found in the malware protection portion of your backup plan in the console or through the scan settings in your BackupPlan API . This role is passed by AWS Backup to Amazon GuardDuty when a scan is initiated, providing access to backups.",
+      "trustedBy": [
+        "malware-protection.guardduty.amazonaws.com"
+      ]
+    }
+  ]
+}

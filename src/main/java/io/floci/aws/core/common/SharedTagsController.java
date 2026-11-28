@@ -6,6 +6,7 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -27,7 +28,7 @@ import jakarta.ws.rs.core.UriInfo;
  * matching {@link TagHandler}.
  *
  * <p>A service whose IAM resources the generated table reads whole is served here only on the routes its AWS model
- * gives ({@link TagDispatcher#resolveHandler(String, UriInfo)}): the bare {@code /tags}, or an ARN whose
+ * gives ({@link TagDispatcher#resolveHandler(String, UriInfo, String)}): the bare {@code /tags}, or an ARN whose
  * {@code /} is not encoded, is refused for it, as AWS has no such route for that service.
  *
  * <p>The resolution and wire-shape logic lives in {@link TagDispatcher}, shared with
@@ -49,7 +50,7 @@ public class SharedTagsController extends AbstractTagsController {
     public Response listTagsByQuery(@Context HttpHeaders headers,
                                     @Context UriInfo uriInfo,
                                     @QueryParam("resourceArn") String arn) {
-        dispatcher().resolveHandler(arn, uriInfo);
+        dispatcher().resolveHandler(arn, uriInfo, HttpMethod.GET);
         return dispatcher().listTagsForArn(headers, arn);
     }
 
@@ -57,7 +58,7 @@ public class SharedTagsController extends AbstractTagsController {
     @Consumes(MediaType.APPLICATION_JSON)
     public Response tagResourceByBody(@Context HttpHeaders headers, @Context UriInfo uriInfo, String body) {
         String arn = dispatcher().readResourceArn(body);
-        TagHandler handler = dispatcher().resolveHandler(arn, uriInfo);
+        TagHandler handler = dispatcher().resolveHandler(arn, uriInfo, HttpMethod.POST);
         return dispatcher().doTagResource(headers, handler, arn, body,
                 Response.ok(dispatcher().emptyObject()).build());
     }
@@ -66,7 +67,7 @@ public class SharedTagsController extends AbstractTagsController {
     public Response untagResourceByQuery(@Context HttpHeaders headers,
                                          @Context UriInfo uriInfo,
                                          @QueryParam("resourceArn") String arn) {
-        TagHandler handler = dispatcher().resolveHandler(arn, uriInfo);
+        TagHandler handler = dispatcher().resolveHandler(arn, uriInfo, HttpMethod.DELETE);
         return dispatcher().untagResourceForArn(headers, uriInfo, arn,
                 Response.ok(dispatcher().emptyObject()).build(), handler);
     }

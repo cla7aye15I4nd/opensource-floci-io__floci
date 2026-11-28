@@ -2591,7 +2591,7 @@ AWS Data Exports, AWS Pricing Calculator, Cost Explorer, CloudTrail, Global Acce
 Timestream for InfluxDB, Amazon Redshift, the Amazon Redshift Data API, AWS Payment Cryptography, AWS DataSync, Amazon EMR,
 Amazon Rekognition, IAM Identity Center, Amazon Inspector, Amazon Macie, AWS Fault Injection Service, AWS Resource
 Access Manager, CloudWatch Observability Access Manager, AWS Resource Explorer, AWS Account Management, AWS Control
-Catalog, Amazon OpenSearch Service, IAM Access Analyzer, AWS Security Hub, Amazon GuardDuty, Lambda, AWS Glue, Amazon SQS, Amazon SNS, Amazon Kinesis Data Streams, Amazon EventBridge Pipes, Aurora DSQL, STS, Amazon EKS, AWS Batch, AWS AppSync, AWS Resource Groups, Amazon CloudWatch Logs, Amazon CloudWatch, Amazon Comprehend, AWS Config, AWS DMS, Amazon ElastiCache, AWS Identity Store, Amazon MemoryDB, Amazon Route 53 Resolver, Amazon SageMaker, Amazon Transcribe, AWS Transfer Family, Amazon EFS, Amazon SES, AWS AppConfig, AWS CodeArtifact and Amazon CodeGuru Reviewer they come from a table generated from AWS's Service Reference and botocore, `src/main/resources/aws/iam-request-resources.json`, which gives each
+Catalog, Amazon OpenSearch Service, IAM Access Analyzer, AWS Security Hub, Amazon GuardDuty, Lambda, AWS Glue, Amazon SQS, Amazon SNS, Amazon Kinesis Data Streams, Amazon EventBridge Pipes, Aurora DSQL, STS, Amazon EKS, AWS Batch, AWS AppSync, AWS Backup, AWS Resource Groups, Amazon CloudWatch Logs, Amazon CloudWatch, Amazon Comprehend, AWS Config, AWS DMS, Amazon ElastiCache, AWS Identity Store, Amazon MemoryDB, Amazon Route 53 Resolver, Amazon SageMaker, Amazon Transcribe, AWS Transfer Family, Amazon EFS, Amazon SES, AWS AppConfig, AWS CodeArtifact and Amazon CodeGuru Reviewer they come from a table generated from AWS's Service Reference and botocore, `src/main/resources/aws/iam-request-resources.json`, which gives each
 operation's action, the resource types that action acts on with their ARN formats, and the request
 members that name them: a member holding a resource's ARN, which counts when it matches the format
 of a type the action acts on, or members filling the variables of a type's format. Nothing in it is
@@ -2847,7 +2847,10 @@ the one after `/tags/` or `/v1/tags/`, the body's `resourceArn` on `POST /tags`,
 whole is served there only on the routes its model gives, as AWS, which tells these services apart by hostname,
 serves no other: EventBridge Scheduler, EMR Serverless, GuardDuty, Security Hub and EKS tag only on
 `/tags/{resourceArn}`, the ARN encoded, and a request on the bare `/tags`, or naming an ARN whose `/` is not
-encoded, is refused with `BadRequestException` ("Invalid resource ARN") and tags nothing.
+encoded, is refused with `BadRequestException` ("Invalid resource ARN") and tags nothing. One sent with a method its
+model does not give on the path is refused with `MethodNotAllowedException` (405): AWS Backup lists and adds tags on
+`/tags/{resourceArn}` and removes them with `POST /untag/{resourceArn}`, so a `DELETE` on its `/tags/{resourceArn}`,
+which no Backup operation is and no action checks, removes nothing.
 
 A REST request names its resources in its path and its query as well as its body. For the REST
 services the table reads, OpenSearch Service, IAM Access Analyzer, Security Hub and GuardDuty among them, a member its path carries, the
@@ -2927,7 +2930,11 @@ API's side (`DisassociateMergedGraphqlApi`) on the `mergedApiAssociation` the Se
 `apis/<sourceApiId>/mergedApiAssociations/<associationId>`, rather than the `associationArn` AppSync returns; an operation
 on an API's data sources, resolvers, functions, types, API keys or schema, which the Service Reference gives no
 resource type, is checked on `*`, as AWS checks it. An `aws:ResourceTag` condition reads the tags AppSync holds on a
-GraphQL API or a custom domain name. Amazon SES v2's
+GraphQL API or a custom domain name. AWS Backup's routes are checked the
+same way: a backup vault by its name and a backup plan by its id, an `aws:ResourceTag` condition reading the tags
+Backup holds on either; a recovery point's format the Service Reference gives with a literal `*` account, which the
+reader matches as written, so a request naming a recovery point by its ARN is checked on `*`, as one naming a DMS
+endpoint is. Amazon SES v2's
 and Amazon Pinpoint Email's routes are checked by their routes, on the resources the table reads, as SES v1's Query
 requests are by their `Action`. Two `GET` routes an SDK built before botocore moved `ListConfigurationSets` and
 `ListEmailIdentities` to `POST /v2/email/list-configuration-sets` and `POST /v2/email/list-identities` still sends,
@@ -3148,6 +3155,15 @@ role each passes:
   and `UpdateApi`, which Floci does not serve, an Event API's `eventConfig.logConfig.cloudWatchLogsRoleArn`, each to
   `appsync.amazonaws.com`, the one service the Service Reference passes their roles to. All are read from the table
   below.
+- **Backup:** `StartBackupJob`, `StartCopyJob`, `StartRestoreJob`, `UpdateRecoveryPointIndexSettings` and
+  `CreateBackupSelection` pass `IamRoleArn` to `backup.amazonaws.com`, `CreateBackupPlan` and `UpdateBackupPlan` each
+  scan setting's `ScannerRoleArn` to `malware-protection.guardduty.amazonaws.com`, and the restore testing selections
+  theirs to `restore-testing.backup.amazonaws.com`, as the Service Reference gives them. The reference passes `StartScanJob`'s
+  `IamRoleArn` and `ScannerRoleArn` to both of the first two without saying which goes where, so a vendored source,
+  `tools/aws/sources/backup-roles.json`, written by `tools/aws/fetch_backup_roles.py` from the developer guide's
+  malware protection page, gives each: the scanner role "trusts malware-protection.guardduty.amazonaws.com", and the
+  backup role is "the same role found in ... the BackupSelection API", whose role the Service Reference passes to
+  Backup alone. All are read from the table below.
 - **Batch:** `CreateComputeEnvironment` and `UpdateComputeEnvironment` pass `serviceRole`, by its name, a name
   its path prefixes (`/foo/bar`, the role `bar` of the path `/foo/`) or its ARN, to `batch.amazonaws.com`, the roles of the instance profile a compute resource's `instanceRole` names, by its
   name or its ARN, to `ec2.amazonaws.com`, and a managed instances provider's `infrastructureRoleArn` to

@@ -225,19 +225,27 @@ public class TagDispatcher {
     }
 
     /**
-     * The handler of the service the ARN names, for a request on a path that service's AWS model gives. AWS serves
-     * a service's tagging on its own routes only, telling the services apart by hostname, so a service whose IAM
-     * resources the generated table reads from its modeled routes ({@link RequestResources#readsNamespace}) is
-     * served on those paths alone: the bare {@code /tags}, or a path whose ARN's {@code /} is not encoded, is
-     * refused as an ARN this path does not serve when its model has no such path
-     * ({@link IamActionRegistry#modelRoutes}). A method its model does not give on the path is the handler's to
-     * answer.
+     * The handler of the service the ARN names, for a request of a method and path that service's AWS model gives.
+     * AWS serves a service's tagging on its own routes only, telling the services apart by hostname, so a service
+     * whose IAM resources the generated table reads from its modeled routes ({@link RequestResources#readsNamespace})
+     * is served on those routes alone, as no other is an operation, and so an action, of the service: the bare
+     * {@code /tags}, or a path whose ARN's {@code /} is not encoded, is refused as an ARN this path does not serve
+     * ({@link IamActionRegistry#modelRoutes(String, UriInfo)}), and a method its model does not give on the path
+     * (Backup's {@code DELETE /tags/{arn}}, as Backup untags on {@code POST /untag/{arn}}) as a method the path does
+     * not take, {@code 405 MethodNotAllowedException}.
      */
-    public TagHandler resolveHandler(String arn, UriInfo uriInfo) {
+    public TagHandler resolveHandler(String arn, UriInfo uriInfo, String method) {
         TagHandler handler = resolveHandler(arn);
         String service = AwsArnUtils.parse(arn).service();
-        if (RequestResources.readsNamespace(service) && !IamActionRegistry.modelRoutes(service, uriInfo)) {
+        if (!RequestResources.readsNamespace(service)) {
+            return handler;
+        }
+        if (!IamActionRegistry.modelRoutes(service, uriInfo)) {
             throw invalidArn(arn);
+        }
+        if (!IamActionRegistry.modelRoutes(service, method, uriInfo)) {
+            throw new AwsException("MethodNotAllowedException",
+                    method + " is not supported for " + handler.serviceKey() + " tag resources.", 405);
         }
         return handler;
     }

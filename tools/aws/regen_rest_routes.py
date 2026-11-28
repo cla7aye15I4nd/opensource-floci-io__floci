@@ -68,6 +68,7 @@ MODELS: dict[str, str] = {
     "appconfig": "appconfig",
     "appconfigdata": "appconfig",
     "appsync": "appsync",
+    "backup": "backup",
     "batch": "batch",
     "bedrock": "bedrock",
     "bedrock-agent": "bedrock",

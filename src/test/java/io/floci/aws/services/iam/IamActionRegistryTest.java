@@ -52,7 +52,7 @@ class IamActionRegistryTest {
      * {@code lambda:InvokeFunction}), read by the vendored request resources ({@code DescribeRepositories}, and
      * {@code DescribeDomain} and {@code GetAnalyzer} from their paths), or none, AWS authorizing its action on no
      * resource type ({@code ListDomainNames}). One AWS checks on a resource Floci does not read stays unmapped
-     * ({@code GetBackupPlan}), as does a request matching no route.
+     * ({@code GetEnvironment}), as does a request matching no route.
      */
     @Test
     void aRouteIsCheckedAsItsOperationWhenFlociChecksItAsAwsDoes() throws IOException {
@@ -65,8 +65,8 @@ class IamActionRegistryTest {
                    "accessanalyzer": {"credentialScope": "access-analyzer", "operations": {
                      "GetAnalyzer": {"method": "GET", "requestUri": "/unmapped/analyzer/{analyzerName}"}
                    }},
-                   "backup": {"credentialScope": "backup", "operations": {
-                     "GetBackupPlan": {"method": "GET", "requestUri": "/unmapped/backup/plans/{backupPlanId}"}
+                   "mwaa": {"credentialScope": "airflow", "operations": {
+                     "GetEnvironment": {"method": "GET", "requestUri": "/unmapped/environments/{Name}"}
                    }},
                    "ecr": {"credentialScope": "ecr", "operations": {
                      "DescribeRepositories": {"method": "GET", "requestUri": "/unmapped/repositories"}
@@ -81,7 +81,7 @@ class IamActionRegistryTest {
         assertEquals("es:DescribeDomain", routed.resolveRoute("es", mockCtx("GET", "/unmapped/domain/logs", none, null, "")));
         assertEquals("access-analyzer:GetAnalyzer", routed.resolveRoute("access-analyzer",
                 mockCtx("GET", "/unmapped/analyzer/a", none, null, "")));
-        assertNull(routed.resolveRoute("backup", mockCtx("GET", "/unmapped/backup/plans/p", none, null, "")));
+        assertNull(routed.resolveRoute("airflow", mockCtx("GET", "/unmapped/environments/e", none, null, "")));
         assertNull(routed.resolveRoute("es", mockCtx("GET", "/other/domain", none, null, "")));
         assertNull(routed.resolveRoute("other", mockCtx("GET", "/unmapped/domain", none, null, "")));
         assertEquals("lambda:InvokeFunction", routed.resolveRoute("lambda",

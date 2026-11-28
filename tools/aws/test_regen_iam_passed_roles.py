@@ -237,6 +237,22 @@ def test_a_vendored_role_for_a_service_the_reference_does_not_name_fails(correct
         r.entry_for("svc:CreateCluster", ["other", "svc"], CLUSTER)
 
 
+def test_a_vendored_role_another_operation_takes_goes_where_the_reference_passes_that_ones(corrections, tmp_path):
+    # Backup's StartScanJob: the guide says its backup role is "the same role found in ... the BackupSelection API",
+    # whose role the reference passes to one service, and its scanner role trusts the other.
+    role_source(corrections, tmp_path, [
+        {"operation": "CreateCluster", "member": "roleArn", "rolePage": "scan", "sameRoleAs": {"operation": "Select"}},
+        {"type": "Compute", "member": "nodeRoleArn", "rolePage": "scan", "trustedBy": ["other.amazonaws.com"]}])
+    passed = {"svc:CreateCluster": ["other", "svc"], "svc:Select": ["svc"]}
+    assert r.entry_for("svc:CreateCluster", ["other", "svc"], CLUSTER, passed)["roles"] == [
+        {"member": "computeConfig.nodeRoleArn", "passedTo": "other"}, {"member": "roleArn", "passedTo": "svc"}]
+    # Not where the reference passes that operation's roles to several services, or to none.
+    with pytest.raises(ValueError, match="not one service"):
+        r.entry_for("svc:CreateCluster", ["other", "svc"], CLUSTER, {**passed, "svc:Select": ["other", "svc"]})
+    with pytest.raises(ValueError, match="not one service"):
+        r.entry_for("svc:CreateCluster", ["other", "svc"], CLUSTER, {"svc:CreateCluster": ["other", "svc"]})
+
+
 JOB_FLOW = {"svc": model({"RunJobFlow": "In"}, {"In": structure(ServiceRole="String", JobFlowRole="String",
                                                                 StepExecutionRoleArn="String")})}
 

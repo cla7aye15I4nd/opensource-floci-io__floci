@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -49,7 +50,7 @@ public class V1TagsController extends AbstractTagsController {
     public Response listTagsForResourceByQuery(@Context HttpHeaders headers,
                                                @Context UriInfo uriInfo,
                                                @QueryParam("resourceArn") String resourceArn) {
-        dispatcher().resolveHandler(resourceArn, uriInfo);
+        dispatcher().resolveHandler(resourceArn, uriInfo, HttpMethod.POST);
         return dispatcher().listTagsForArn(headers, resourceArn);
     }
 }

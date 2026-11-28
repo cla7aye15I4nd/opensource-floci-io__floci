@@ -10,6 +10,7 @@ import io.floci.aws.core.common.PaginatedResult;
 import io.floci.aws.core.common.Pagination;
 import io.floci.aws.core.common.RegionResolver;
 import io.floci.aws.core.common.RequestScopes;
+import io.floci.aws.core.common.StoredResourceArns;
 import io.floci.aws.core.storage.AccountAwareStorageBackend;
 import io.floci.aws.core.storage.StorageBackend;
 import io.floci.aws.core.storage.StorageFactory;
@@ -917,6 +918,19 @@ public class BackupService {
 
     public void tagResource(String resourceArn, Map<String, String> tags) {
         applyTags(resourceArn, tags);
+    }
+
+    /**
+     * The tags Backup holds on the backup vault or the backup plan {@code resourceArn} names, which an
+     * {@code aws:ResourceTag} condition reads; none for a resource it does not hold. Reads only.
+     */
+    Map<String, String> storedTags(String resourceArn) {
+        try {
+            return StoredResourceArns.withEmptyValues(findTagsByArn(resourceArn));
+        } catch (AwsException expected) {
+            // findTagsByArn refuses an ARN naming no vault or plan Backup holds, which has no stored tags.
+            return Map.of();
+        }
     }
 
     public void untagResource(String resourceArn, List<String> tagKeys) {

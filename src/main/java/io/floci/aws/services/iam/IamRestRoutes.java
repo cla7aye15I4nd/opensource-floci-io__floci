@@ -417,7 +417,12 @@ final class IamRestRoutes {
      */
     boolean takesPath(String scope, String path, MultivaluedMap<String, String> query) {
         return routes.getOrDefault(scope, Map.of()).keySet().stream()
-                .anyMatch(method -> match(scope, method, path, query).isPresent());
+                .anyMatch(method -> takesRoute(scope, method, path, query));
+    }
+
+    /** Whether a route of the credential scope takes the method, path and query: the request is one of its model's. */
+    boolean takesRoute(String scope, String method, String path, MultivaluedMap<String, String> query) {
+        return match(scope, method, path, query).isPresent();
     }
 
     static IamRestRoutes parse(InputStream in) throws IOException {

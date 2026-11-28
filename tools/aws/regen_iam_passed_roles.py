@@ -79,6 +79,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import fetch_apigateway_roles
+import fetch_backup_roles
 import fetch_batch_roles
 import fetch_eks_roles
 import fetch_emr_roles
@@ -95,9 +96,8 @@ SERVICE_SUFFIX = ".amazonaws.com"
 # The IAM namespaces whose operations this file reads: those Floci serves over the JSON and Query
 # protocols and Smithy RPC v2 CBOR, and the REST ones whose routes Floci authorizes by operation.
 NAMESPACES = (
-    "apigateway", "application-autoscaling", "aps", "appsync", "athena", "autoscaling", "batch", "budgets",
-    "cloudformation",
-    "cloudtrail",
+    "apigateway", "application-autoscaling", "aps", "appsync", "athena", "autoscaling", "backup", "batch",
+    "budgets", "cloudformation", "cloudtrail",
     "cloudwatch", "codebuild", "codedeploy", "codepipeline", "cognito-identity", "cognito-idp",
     "comprehend", "config", "datasync", "dms", "dsql", "ec2", "ecr", "ecs", "eks",
     "elasticfilesystem", "elasticloadbalancing", "elasticmapreduce",
@@ -116,7 +116,6 @@ NOT_COVERED = {
     "appconfig": "CreateExtension and UpdateExtension pass a role in Actions{}[].RoleArn, a map of lists, which this file "
                  "does not read yet",
     "aws-marketplace": "REST routes no rule maps yet",
-    "backup": "REST routes no rule maps yet",
     "bedrock": "REST routes no rule maps yet",
     "bedrock-agentcore": "REST routes no rule maps yet",
     "cloudfront": "REST routes no rule maps yet",
@@ -430,10 +429,15 @@ MEMBER_SERVICES = {
 # policies, or the service-linked role's "trusts the following services", name "batch.amazonaws.com",
 # "ec2.amazonaws.com" and "spotfleet.amazonaws.com", and a managed instances provider's infrastructureRoleArn as needing
 # "the iam:PassRole permission for this role with the condition iam:PassedToService: ecs.amazonaws.com";
-# tools/aws/fetch_batch_roles.py vendors those pages and `vendored_service` reads them. Each file is written by its own
+# tools/aws/fetch_batch_roles.py vendors those pages and `vendored_service` reads them. And granted for Backup: its
+# developer guide's malware protection page names the two roles StartScanJob takes, the scanner role, which "trusts
+# malware-protection.guardduty.amazonaws.com", and the backup role, "the same role found in ... the BackupSelection
+# API", linking CreateBackupSelection, whose role the reference passes to backup alone;
+# tools/aws/fetch_backup_roles.py vendors that page and `vendored_service` reads it. Each file is written by its own
 # script from the pages, unchanged, and nothing about an operation is stated here.
 ROLE_SOURCES: dict[str, Path] = {
     "apigateway": REPO_ROOT / "tools/aws/sources/apigateway-roles.json",
+    "backup": REPO_ROOT / "tools/aws/sources/backup-roles.json",
     "batch": REPO_ROOT / "tools/aws/sources/batch-roles.json",
     "eks": REPO_ROOT / "tools/aws/sources/eks-roles.json",
     "elasticmapreduce": REPO_ROOT / "tools/aws/sources/emr-roles.json",
@@ -441,6 +445,7 @@ ROLE_SOURCES: dict[str, Path] = {
 # The script that writes each namespace's role source, whose pages `verify_role_sources` reads it against.
 ROLE_FETCHERS = {
     "apigateway": fetch_apigateway_roles,
+    "backup": fetch_backup_roles,
     "batch": fetch_batch_roles,
     "eks": fetch_eks_roles,
     "elasticmapreduce": fetch_emr_roles,
@@ -739,15 +744,24 @@ def vendored_role(operation: str, path: str, models: dict[str, dict]) -> dict | 
     return None
 
 
-def vendored_service(operation: str, path: str, passed_to: list[str], models: dict[str, dict]) -> str | None:
+def vendored_service(operation: str, path: str, passed_to: list[str], models: dict[str, dict],
+                     passed: dict[str, list[str]] | None = None) -> str | None:
     """The one of `passed_to` the role at `path` is for, by the namespace's vendored role source (`ROLE_SOURCES`):
     the service its documentation passes the role its member names to, or else the service a trust policy of that
-    role is for. None for a member the source does not give."""
+    role is for, or else, where the source says the role is the one another operation of the namespace takes
+    (`sameRoleAs`), the one service the reference passes that operation's roles to (`passed`, by operation). None for a
+    member the source does not give."""
     entry = vendored_role(operation, path, models)
     if entry is None:
         return None
-    services = [service.removesuffix(SERVICE_SUFFIX)
-                for service in entry.get("passedToService", entry.get("trustedBy", []))]
+    named = entry.get("passedToService", entry.get("trustedBy"))
+    same = f"{namespace_of(operation)}:{entry['sameRoleAs']['operation']}" \
+        if named is None and "operation" in entry.get("sameRoleAs", {}) else None
+    if same is not None and len((passed or {}).get(same, [])) != 1:
+        raise ValueError(f"{operation}: the role at {path} is {same}'s by {entry.get('rolePage')}, which the reference "
+                         f"passes to {(passed or {}).get(same)}, not one service")
+    services = (passed or {})[same] if same is not None else [service.removesuffix(SERVICE_SUFFIX)
+                                                              for service in named or []]
     chosen = [service for service in services if service in passed_to]
     if len(chosen) != 1:
         raise ValueError(f"{operation}: the role at {path} is for {services} by {entry.get('rolePage')}, which "
@@ -806,8 +820,10 @@ def _overrides_for(table: dict, operation: str) -> dict:
     return merged
 
 
-def entry_for(operation: str, passed_to: list[str], models: dict[str, dict]) -> dict:
-    """What the file says for one operation, from its services and the models of its namespace."""
+def entry_for(operation: str, passed_to: list[str], models: dict[str, dict],
+              passed: dict[str, list[str]] | None = None) -> dict:
+    """What the file says for one operation, from its services, the models of its namespace and the services the
+    reference passes each operation's roles to (`passed`)."""
     if operation in BY_HAND:
         return {"passedTo": passed_to, "byHand": BY_HAND[operation]}
     name = operation.split(":", 1)[1]
@@ -849,7 +865,7 @@ def entry_for(operation: str, passed_to: list[str], models: dict[str, dict]) -> 
         elif len(passed_to) == 1:
             role["passedTo"] = passed_to[0]
         elif passed_to:
-            vendored = vendored_service(operation, path, passed_to, models)
+            vendored = vendored_service(operation, path, passed_to, models, passed)
             if vendored is None:
                 raise ValueError(f"{operation}: the role at {path} can go to any of {passed_to}; "
                                  f"say which in MEMBER_SERVICES or a vendored role source (ROLE_SOURCES)")
@@ -876,10 +892,11 @@ def build(documents: list[dict], provenance: str, data: Path, botocore: str) -> 
         namespaces[namespace] = clients
     operations = {}
     unread = []
+    passed = {operation: value["passedTo"] for operation, value in covered.items()}
     for operation, value in covered.items():
         models = load_models(data, set(namespaces[namespace_of(operation)]))
         try:
-            operations[operation] = entry_for(operation, value["passedTo"], models)
+            operations[operation] = entry_for(operation, value["passedTo"], models, passed)
         except ValueError as e:
             unread.append(str(e))
     unread += _unmatched_corrections(covered, namespaces, data)
@@ -1039,10 +1056,11 @@ def validate(document: dict) -> list[str]:
 def derive(document: dict, data: Path) -> list[str]:
     """Where the members the file gives differ from what botocore gives for the models it names."""
     problems: list[str] = []
+    passed = {operation: entry["passedTo"] for operation, entry in document["operations"].items()}
     for operation, entry in document["operations"].items():
         models = load_models(data, set(document["namespaces"][namespace_of(operation)]))
         try:
-            expected = entry_for(operation, entry["passedTo"], models)
+            expected = entry_for(operation, entry["passedTo"], models, passed)
         except ValueError as e:
             problems.append(str(e))
             continue
