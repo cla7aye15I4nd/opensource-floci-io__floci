@@ -10,6 +10,7 @@ import io.floci.aws.testing.RestAssuredJsonUtils;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
+import io.restassured.response.ExtractableResponse;
 import io.restassured.response.Response;
 import io.restassured.response.ValidatableResponse;
 import io.restassured.specification.RequestSpecification;
@@ -271,6 +272,92 @@ class IamRestRouteEnforcementIntegrationTest {
                 + ":role/route-pipe\",\"DesiredState\":\"STOPPED\",\"Tags\":{\"team\":\"" + team + "\"}}")
                 .post("/v1/pipes/" + name).then().statusCode(200);
         cleanup.register(() -> adminOf("pipes").delete("/v1/pipes/" + name).then().statusCode(200));
+        return name;
+    }
+
+    /**
+     * An AppSync route is checked on the GraphQL API or the custom domain name it names, by the id or the name in its
+     * path, as the Service Reference gives their own operations; one on an API's data sources on {@code *}, as AWS
+     * checks an action with no resource type; and an {@code aws:ResourceTag} condition reads the tags AppSync holds on
+     * the API or the domain name.
+     */
+    @Test
+    void anAppSyncRouteIsCheckedOnTheGraphqlApiOrDomainNameItNames() {
+        String user = user("route-appsync");
+        String tagged = graphqlApi("route-api-" + suffix(), "data");
+        String other = graphqlApi("route-api-" + suffix(), "web");
+        String prefix = "arn:aws:appsync:us-east-1:" + ACCOUNT + ":";
+
+        policy(user, allow("appsync:GetGraphqlApi", prefix + "apis/" + tagged));
+        request(user, "appsync", "GET", "/v1/apis/" + tagged, null).statusCode(200);
+        refused(request(user, "appsync", "GET", "/v1/apis/" + other, null), "appsync:GetGraphqlApi");
+
+        // Listing an API's data sources acts on no resource type, so only a grant on every resource covers it.
+        policy(user, allow("appsync:ListDataSources", prefix + "apis/" + tagged));
+        refused(request(user, "appsync", "GET", "/v1/apis/" + tagged + "/datasources", null),
+                "appsync:ListDataSources");
+        policy(user, allow("appsync:ListDataSources", "*"));
+        request(user, "appsync", "GET", "/v1/apis/" + tagged + "/datasources", null).statusCode(200);
+
+        policy(user, onTeam("Allow", "appsync:GetGraphqlApi", "data"));
+        request(user, "appsync", "GET", "/v1/apis/" + tagged, null).statusCode(200);
+        refused(request(user, "appsync", "GET", "/v1/apis/" + other, null), "appsync:GetGraphqlApi");
+
+        String domain = domainName("route-" + suffix() + ".example.com", "data");
+        String untagged = domainName("route-" + suffix() + ".example.com", "web");
+        policy(user, allow("appsync:GetDomainName", prefix + "domainnames/" + domain));
+        request(user, "appsync", "GET", "/v1/domainnames/" + domain, null).statusCode(200);
+        refused(request(user, "appsync", "GET", "/v1/domainnames/" + untagged, null), "appsync:GetDomainName");
+        policy(user, onTeam("Allow", "appsync:GetDomainName", "data"));
+        request(user, "appsync", "GET", "/v1/domainnames/" + domain, null).statusCode(200);
+        refused(request(user, "appsync", "GET", "/v1/domainnames/" + untagged, null), "appsync:GetDomainName");
+
+        // A grant on the ARN AppSync returns for a channel namespace or an association covers it, and a deny on it
+        // holds.
+        String namespace = adminOf("appsync").body("{\"name\":\"routens\"}").post("/v2/apis/" + tagged
+                + "/channelNamespaces").then().statusCode(200).extract().path("channelNamespace.channelNamespaceArn");
+        adminOf("appsync").body("{\"name\":\"otherns\"}").post("/v2/apis/" + tagged + "/channelNamespaces").then()
+                .statusCode(200);
+        policy(user, allow("appsync:GetChannelNamespace", namespace));
+        request(user, "appsync", "GET", "/v2/apis/" + tagged + "/channelNamespaces/routens", null).statusCode(200);
+        refused(request(user, "appsync", "GET", "/v2/apis/" + tagged + "/channelNamespaces/otherns", null),
+                "appsync:GetChannelNamespace");
+        ExtractableResponse<Response> association = adminOf("appsync").body("{\"sourceApiIdentifier\":\"" + other
+                + "\"}").post("/v1/mergedApis/" + tagged + "/sourceApiAssociations").then().statusCode(200).extract();
+        String associationArn = association.path("sourceApiAssociation.associationArn");
+        String associationPath = "/v1/mergedApis/" + tagged + "/sourceApiAssociations/"
+                + association.path("sourceApiAssociation.associationId");
+        policy(user, allow("appsync:GetSourceApiAssociation", associationArn));
+        request(user, "appsync", "GET", associationPath, null).statusCode(200);
+        policy(user, allow("appsync:GetSourceApiAssociation", "*") + ","
+                + deny("appsync:GetSourceApiAssociation", associationArn));
+        refused(request(user, "appsync", "GET", associationPath, null), "appsync:GetSourceApiAssociation");
+        // The source API's side of the association is the mergedApiAssociation the Service Reference gives
+        // DisassociateMergedGraphqlApi, apis/<sourceApiId>/mergedApiAssociations/<associationId>, not the ARN returned.
+        String sourceSide = "/v1/sourceApis/" + other + "/mergedApiAssociations/"
+                + association.path("sourceApiAssociation.associationId");
+        policy(user, allow("appsync:DisassociateMergedGraphqlApi", associationArn));
+        refused(request(user, "appsync", "DELETE", sourceSide, null), "appsync:DisassociateMergedGraphqlApi");
+        policy(user, allow("appsync:DisassociateMergedGraphqlApi", prefix + "apis/" + other + "/mergedApiAssociations/"
+                + association.path("sourceApiAssociation.associationId")));
+        request(user, "appsync", "DELETE", sourceSide, null).statusCode(not(403));
+    }
+
+    /** A GraphQL API an administrator creates, tagged with {@code team}; its id. */
+    private String graphqlApi(String name, String team) {
+        String id = adminOf("appsync").body("{\"name\":\"" + name + "\",\"authenticationType\":\"API_KEY\","
+                + "\"tags\":{\"team\":\"" + team + "\"}}").post("/v1/apis").then().statusCode(200)
+                .extract().path("graphqlApi.apiId");
+        cleanup.register(() -> adminOf("appsync").delete("/v1/apis/" + id));
+        return id;
+    }
+
+    /** A custom domain name an administrator creates, tagged with {@code team}; the name. */
+    private String domainName(String name, String team) {
+        adminOf("appsync").body("{\"domainName\":\"" + name + "\",\"certificateArn\":\"arn:aws:acm:us-east-1:"
+                + ACCOUNT + ":certificate/route\",\"tags\":{\"team\":\"" + team + "\"}}").post("/v1/domainnames")
+                .then().statusCode(200);
+        cleanup.register(() -> adminOf("appsync").delete("/v1/domainnames/" + name));
         return name;
     }
 

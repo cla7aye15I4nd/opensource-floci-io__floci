@@ -16,6 +16,8 @@ import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -701,9 +703,20 @@ class AppSyncIntegrationTest {
                 """)
             .urlEncodingEnabled(false)
         .when()
-            .post("/v1/tags/" + apiArn)
+            .post(tagsPath(apiArn))
         .then()
             .statusCode(204);
+
+        // AWS serves AppSync's tagging on /v1/tags/{resourceArn}, the ARN's slash encoded as an SDK sends it: one sent
+        // unencoded is no route of AppSync's.
+        given()
+            .header("Authorization", AUTH)
+            .urlEncodingEnabled(false)
+        .when()
+            .get("/v1/tags/" + apiArn)
+        .then()
+            .statusCode(400)
+            .body("message", equalTo("Invalid resource ARN: " + apiArn));
     }
 
     @Test
@@ -715,7 +728,7 @@ class AppSyncIntegrationTest {
             .header("Authorization", AUTH)
             .urlEncodingEnabled(false)
         .when()
-            .get("/v1/tags/" + apiArn)
+            .get(tagsPath(apiArn))
         .then()
             .statusCode(200)
             .body("tags.env", equalTo("test"))
@@ -732,7 +745,7 @@ class AppSyncIntegrationTest {
             .queryParam("tagKeys", "team")
             .urlEncodingEnabled(false)
         .when()
-            .delete("/v1/tags/" + apiArn)
+            .delete(tagsPath(apiArn))
         .then()
             .statusCode(204);
 
@@ -740,7 +753,7 @@ class AppSyncIntegrationTest {
             .header("Authorization", AUTH)
             .urlEncodingEnabled(false)
         .when()
-            .get("/v1/tags/" + apiArn)
+            .get(tagsPath(apiArn))
         .then()
             .statusCode(200)
             .body("tags.team", nullValue())
@@ -4065,5 +4078,10 @@ class AppSyncIntegrationTest {
             .statusCode(404)
             .body("__type", equalTo("NotFoundException"))
             .body("message", containsString("Type not found:"));
+    }
+
+    /** The tag route of a resource, its ARN encoded as an SDK sends it. */
+    private static String tagsPath(String arn) {
+        return "/v1/tags/" + URLEncoder.encode(arn, StandardCharsets.UTF_8);
     }
 }

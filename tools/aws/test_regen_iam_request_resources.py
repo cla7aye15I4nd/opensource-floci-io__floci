@@ -2733,6 +2733,30 @@ def test_a_spelled_form_wins_over_the_name_its_member_fills():
         other]
 
 
+def test_a_path_label_after_the_segment_its_types_format_puts_before_a_variable_fills_it():
+    # AppSync's `apiId`, after `apis` in `/v1/apis/{apiId}`, fills `apis/${GraphQLAPIId}`: its stem, `api`, is too
+    # short to match the variable's alone, and the segment both put before it says it is the API's id.
+    graphql = "arn:${Partition}:svc:${Region}:${Account}:apis/${GraphQLAPIId}"
+    assert r._aligned_label("GraphQLAPIId", graphql, {"apiId": "apiId"}, {"apiId": "apis"}) == "apiId"
+    # Not after another segment, nor a label whose stem does not end the variable's.
+    assert r._aligned_label("GraphQLAPIId", graphql, {"apiId": "apiId"}, {"apiId": "domainnames"}) is None
+    assert r._aligned_label("GraphQLAPIId", graphql, {"name": "name"}, {"name": "apis"}) is None
+    # A route segment qualifying the format's with the variable's first word: `sourceApiIdentifier`, after
+    # `sourceApis`, fills the source API's id of a merged API association; the API's own id is not a source API's.
+    association = "arn:${Partition}:svc:${Region}:${Account}:apis/${SourceGraphQLAPIId}/mergedApiAssociations/${Id}"
+    source = {"sourceApiIdentifier": "sourceApiIdentifier"}
+    assert r._aligned_label("SourceGraphQLAPIId", association, source, {"sourceApiIdentifier": "sourceApis"}) == \
+        "sourceApiIdentifier"
+    assert r._aligned_label("GraphQLAPIId", graphql, source, {"sourceApiIdentifier": "sourceApis"}) is None
+    model = {"svc": {"metadata": {"apiVersion": "2017-07-25", "protocol": "rest-json"},
+                     "operations": {"GetGraphqlApi": {"http": {"method": "GET", "requestUri": "/v1/apis/{apiId}"},
+                                                      "input": {"shape": "In"}}},
+                     "shapes": {"In": {"type": "structure", "members": {
+                         "apiId": {"shape": "String", "location": "uri", "locationName": "apiId"}}},
+                         "String": {"type": "string"}}}}
+    assert r.route_segments(model, "GetGraphqlApi") == {"apiId": "apis"}
+
+
 def test_an_arn_patterns_type_words_and_a_clients_versioned_twin():
     assert r.pattern_words("arn:aws:svc:[a-z0-9-]+:([0-9]{12}):(bus-v2|subscriber|source-v2\\/(a|b))\\/[A-Za-z]+") == {
         "bus-v2", "subscriber", "source-v2"}

@@ -2591,7 +2591,7 @@ AWS Data Exports, AWS Pricing Calculator, Cost Explorer, CloudTrail, Global Acce
 Timestream for InfluxDB, Amazon Redshift, the Amazon Redshift Data API, AWS Payment Cryptography, AWS DataSync, Amazon EMR,
 Amazon Rekognition, IAM Identity Center, Amazon Inspector, Amazon Macie, AWS Fault Injection Service, AWS Resource
 Access Manager, CloudWatch Observability Access Manager, AWS Resource Explorer, AWS Account Management, AWS Control
-Catalog, Amazon OpenSearch Service, IAM Access Analyzer, AWS Security Hub, Amazon GuardDuty, Lambda, AWS Glue, Amazon SQS, Amazon SNS, Amazon Kinesis Data Streams, Amazon EventBridge Pipes, Aurora DSQL, STS, Amazon EKS, AWS Batch, AWS Resource Groups, Amazon CloudWatch Logs, Amazon CloudWatch, Amazon Comprehend, AWS Config, AWS DMS, Amazon ElastiCache, AWS Identity Store, Amazon MemoryDB, Amazon Route 53 Resolver, Amazon SageMaker, Amazon Transcribe, AWS Transfer Family, Amazon EFS, Amazon SES, AWS AppConfig, AWS CodeArtifact and Amazon CodeGuru Reviewer they come from a table generated from AWS's Service Reference and botocore, `src/main/resources/aws/iam-request-resources.json`, which gives each
+Catalog, Amazon OpenSearch Service, IAM Access Analyzer, AWS Security Hub, Amazon GuardDuty, Lambda, AWS Glue, Amazon SQS, Amazon SNS, Amazon Kinesis Data Streams, Amazon EventBridge Pipes, Aurora DSQL, STS, Amazon EKS, AWS Batch, AWS AppSync, AWS Resource Groups, Amazon CloudWatch Logs, Amazon CloudWatch, Amazon Comprehend, AWS Config, AWS DMS, Amazon ElastiCache, AWS Identity Store, Amazon MemoryDB, Amazon Route 53 Resolver, Amazon SageMaker, Amazon Transcribe, AWS Transfer Family, Amazon EFS, Amazon SES, AWS AppConfig, AWS CodeArtifact and Amazon CodeGuru Reviewer they come from a table generated from AWS's Service Reference and botocore, `src/main/resources/aws/iam-request-resources.json`, which gives each
 operation's action, the resource types that action acts on with their ARN formats, and the request
 members that name them: a member holding a resource's ARN, which counts when it matches the format
 of a type the action acts on, or members filling the variables of a type's format. Nothing in it is
@@ -2920,7 +2920,14 @@ calls on the file system or access point EFS answers their `MountTargetId` or `R
 routes are checked the same way: a compute environment, a job queue or a job definition by its name or its ARN, the
 compute environments a job queue's `computeEnvironmentOrder` names, the job definition revision a `name:revision`
 names, and for a job submitted from a definition's name alone the latest active revision it runs ("the request ARN
-includes the revision"), each as Batch resolves it, and a job by its id. Amazon SES v2's
+includes the revision"), each as Batch resolves it, and a job by its id. AWS AppSync's routes are checked the
+same way: a GraphQL API by the id its path gives, a custom domain name by its name, a channel namespace by its API's
+id and its name, and a source or merged API association by its id and the id of the API its path names, the source
+API's side (`DisassociateMergedGraphqlApi`) on the `mergedApiAssociation` the Service Reference gives it,
+`apis/<sourceApiId>/mergedApiAssociations/<associationId>`, rather than the `associationArn` AppSync returns; an operation
+on an API's data sources, resolvers, functions, types, API keys or schema, which the Service Reference gives no
+resource type, is checked on `*`, as AWS checks it. An `aws:ResourceTag` condition reads the tags AppSync holds on a
+GraphQL API or a custom domain name. Amazon SES v2's
 and Amazon Pinpoint Email's routes are checked by their routes, on the resources the table reads, as SES v1's Query
 requests are by their `Action`. Two `GET` routes an SDK built before botocore moved `ListConfigurationSets` and
 `ListEmailIdentities` to `POST /v2/email/list-configuration-sets` and `POST /v2/email/list-identities` still sends,
@@ -3136,6 +3143,11 @@ role each passes:
   (ARN)"; "the path for this property is /name"; "only OpenAPI definition JSON/YAML files are
   supported"; and each extension, what it extends and its property "in the form of an ARN of an IAM
   execution role".
+- **AppSync:** `CreateDataSource` and `UpdateDataSource` pass `serviceRoleArn`, `CreateGraphqlApi` and
+  `UpdateGraphqlApi` a GraphQL API's `logConfig.cloudWatchLogsRoleArn` and `mergedApiExecutionRoleArn`, and `CreateApi`
+  and `UpdateApi`, which Floci does not serve, an Event API's `eventConfig.logConfig.cloudWatchLogsRoleArn`, each to
+  `appsync.amazonaws.com`, the one service the Service Reference passes their roles to. All are read from the table
+  below.
 - **Batch:** `CreateComputeEnvironment` and `UpdateComputeEnvironment` pass `serviceRole`, by its name, a name
   its path prefixes (`/foo/bar`, the role `bar` of the path `/foo/`) or its ARN, to `batch.amazonaws.com`, the roles of the instance profile a compute resource's `instanceRole` names, by its
   name or its ARN, to `ec2.amazonaws.com`, and a managed instances provider's `infrastructureRoleArn` to

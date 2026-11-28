@@ -95,7 +95,8 @@ SERVICE_SUFFIX = ".amazonaws.com"
 # The IAM namespaces whose operations this file reads: those Floci serves over the JSON and Query
 # protocols and Smithy RPC v2 CBOR, and the REST ones whose routes Floci authorizes by operation.
 NAMESPACES = (
-    "apigateway", "application-autoscaling", "aps", "athena", "autoscaling", "batch", "budgets", "cloudformation",
+    "apigateway", "application-autoscaling", "aps", "appsync", "athena", "autoscaling", "batch", "budgets",
+    "cloudformation",
     "cloudtrail",
     "cloudwatch", "codebuild", "codedeploy", "codepipeline", "cognito-identity", "cognito-idp",
     "comprehend", "config", "datasync", "dms", "dsql", "ec2", "ecr", "ecs", "eks",
@@ -114,7 +115,6 @@ NOT_COVERED = {
     "airflow": "REST routes no rule maps yet",
     "appconfig": "CreateExtension and UpdateExtension pass a role in Actions{}[].RoleArn, a map of lists, which this file "
                  "does not read yet",
-    "appsync": "REST routes no rule maps yet",
     "aws-marketplace": "REST routes no rule maps yet",
     "backup": "REST routes no rule maps yet",
     "bedrock": "REST routes no rule maps yet",

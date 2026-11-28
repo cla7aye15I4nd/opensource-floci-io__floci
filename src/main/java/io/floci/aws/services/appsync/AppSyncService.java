@@ -746,6 +746,31 @@ public class AppSyncService {
         apiStore.put(api.getApiId(), api);
     }
 
+    /**
+     * The tags AppSync holds on the GraphQL API or the custom domain name {@code resourceArn} names, which an
+     * {@code aws:ResourceTag} condition reads; none for a resource it does not hold or keeps no tags on. Reads only.
+     */
+    synchronized Map<String, String> storedTags(String resourceArn) {
+        try {
+            Map<String, String> tags = resourceArn.contains(":domainnames/")
+                    ? taggedDomainName(resourceArn).getTags() : taggedApi(resourceArn).getTags();
+            return tags == null ? Map.of() : Map.copyOf(tags);
+        } catch (AwsException expected) {
+            // The lookups refuse an ARN naming no API or domain name AppSync holds, which has no stored tags.
+            return Map.of();
+        }
+    }
+
+    /** The domain name {@code resourceArn} names: the request's Region's one whose ARN it is. */
+    private DomainName taggedDomainName(String resourceArn) {
+        DomainName domainName = getDomainName(resourceArn.substring(resourceArn.indexOf(":domainnames/")
+                + ":domainnames/".length()));
+        if (!resourceArn.equals(domainName.getDomainNameArn())) {
+            throw new AwsException("NotFoundException", "Domain name not found: " + resourceArn, 404);
+        }
+        return domainName;
+    }
+
     /** The API {@code resourceArn} names: the request's Region's API whose ARN it is, partition, Region and account. */
     private GraphqlApi taggedApi(String resourceArn) {
         String apiId = extractApiIdFromArn(resourceArn);
@@ -895,7 +920,7 @@ public class AppSyncService {
         ns.setApiId(apiId);
         ns.setDescription((String) request.get("description"));
         ns.setChannelNamespaceArn(regionResolver.buildArn("appsync", regionResolver.regionOf(api.getArn()),
-            "apis/" + apiId + "/channelNamespaces/" + name));
+            "apis/" + apiId + "/channelNamespace/" + name));
         ns.setCodeHandlers((String) request.get("codeHandlers"));
         ns.setCreated(System.currentTimeMillis());
         ns.setLastModified(System.currentTimeMillis());
@@ -942,9 +967,9 @@ public class AppSyncService {
         assertSchemaNotBusy(mergedApiIdentifier);
         checkDuplicateSourceApiAssociation(sourceApiIdentifier, mergedApiIdentifier);
         SourceApiAssociation assoc = new SourceApiAssociation();
-        assoc.setAssociationId(generateShortId());
-        assoc.setAssociationArn(regionResolver.buildArn("appsync", region,
-            "sourceApis/" + sourceApiIdentifier + "/mergedApiAssociations/" + generateShortId()));
+        String associationId = generateShortId();
+        assoc.setAssociationId(associationId);
+        assoc.setAssociationArn(associationArn(region, mergedApiIdentifier, associationId));
         assoc.setMergedApiId(mergedApiIdentifier);
         assoc.setMergedApiArn(regionResolver.buildArn("appsync", region, "apis/" + mergedApiIdentifier));
         assoc.setSourceApiId(sourceApiIdentifier);
@@ -970,9 +995,9 @@ public class AppSyncService {
         assertSchemaNotBusy(sourceApiId);
         checkDuplicateSourceApiAssociation(sourceApiId, mergedApiIdentifier);
         SourceApiAssociation assoc = new SourceApiAssociation();
-        assoc.setAssociationId(generateShortId());
-        assoc.setAssociationArn(regionResolver.buildArn("appsync", region,
-            "mergedApis/" + mergedApiIdentifier + "/sourceApiAssociations/" + generateShortId()));
+        String associationId = generateShortId();
+        assoc.setAssociationId(associationId);
+        assoc.setAssociationArn(associationArn(region, mergedApiIdentifier, associationId));
         assoc.setMergedApiId(mergedApiIdentifier);
         assoc.setMergedApiArn(regionResolver.buildArn("appsync", region, "apis/" + mergedApiIdentifier));
         assoc.setSourceApiId(sourceApiId);
@@ -985,6 +1010,15 @@ public class AppSyncService {
         assoc.setSourceApiAssociationConfig(config);
         mergedApiAssociationStore.put(assoc.getAssociationId(), assoc);
         return assoc;
+    }
+
+    /**
+     * The ARN AppSync gives an association, from either side: the merged API's {@code sourceApiAssociations} path
+     * ending in the association's own id.
+     */
+    private String associationArn(String region, String mergedApiId, String associationId) {
+        return regionResolver.buildArn("appsync", region,
+            "apis/" + mergedApiId + "/sourceApiAssociations/" + associationId);
     }
 
     /**

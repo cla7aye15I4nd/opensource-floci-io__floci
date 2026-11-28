@@ -1758,6 +1758,38 @@ class IamPassRoleEnforcementIntegrationTest {
                  "Target":{"Arn":"%s","RoleArn":"%s"}}""".formatted(QUEUE_ARN, role);
     }
 
+    @Test
+    void anAppSyncDataSourceOrApiNeedsPassRoleOnTheRoleItGivesAppSync() {
+        // The Service Reference passes each role an AppSync request names to AppSync, which assumes it: a data source's
+        // service role and a GraphQL API's CloudWatch Logs role.
+        String role = role("appsync-service");
+        User user = user("passrole-appsync");
+        String api = admin("appsync").contentType("application/json")
+                .body("{\"name\":\"passrole-api-" + suffix() + "\",\"authenticationType\":\"API_KEY\"}")
+                .post("/v1/apis").then().statusCode(200).extract().path("graphqlApi.apiId");
+        cleanup.register(() -> admin("appsync").delete("/v1/apis/" + api));
+        String dataSource = "{\"name\":\"passrole_source\",\"type\":\"AMAZON_DYNAMODB\",\"serviceRoleArn\":\""
+                + role + "\",\"dynamodbConfig\":{\"tableName\":\"t\",\"awsRegion\":\"us-east-1\"}}";
+        String create = allow("appsync:CreateDataSource", "*");
+
+        user.policy(create);
+        denied(user.rest("appsync").body(dataSource).post("/v1/apis/" + api + "/datasources").then());
+        user.policy(create + "," + passRole(role, "lambda.amazonaws.com"));
+        denied(user.rest("appsync").body(dataSource).post("/v1/apis/" + api + "/datasources").then());
+        user.policy(create + "," + passRole(role, "appsync.amazonaws.com"));
+        user.rest("appsync").body(dataSource).post("/v1/apis/" + api + "/datasources").then().statusCode(200);
+
+        String logged = "{\"name\":\"passrole-api-" + suffix() + "\",\"authenticationType\":\"API_KEY\","
+                + "\"logConfig\":{\"fieldLogLevel\":\"ERROR\",\"cloudWatchLogsRoleArn\":\"" + role + "\"}}";
+        String createApi = allow("appsync:CreateGraphqlApi", "*");
+        user.policy(createApi);
+        denied(user.rest("appsync").body(logged).post("/v1/apis").then());
+        user.policy(createApi + "," + passRole(role, "appsync.amazonaws.com"));
+        String made = user.rest("appsync").body(logged).post("/v1/apis").then().statusCode(200)
+                .extract().path("graphqlApi.apiId");
+        cleanup.register(() -> admin("appsync").delete("/v1/apis/" + made));
+    }
+
     private static void denied(ValidatableResponse response) {
         response.statusCode(403).body(containsString("iam:PassRole"));
     }

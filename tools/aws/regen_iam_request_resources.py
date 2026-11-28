@@ -163,6 +163,10 @@ Beyond the members' names, botocore's shapes and documentation say what a member
   request is), and every other row names every client's;
 - a variable no member fills is `fixed` to the one value of an enum named after it that the operation's name gives
   (CodePipeline's `CreateCustomActionType` makes an action type whose `ActionOwner` is `Custom`);
+- a variable whose stem no member's matches is filled by the one path label a REST route puts after the literal
+  segment the type's format puts before that variable, or after that segment qualified by the variable's first word
+  (AppSync's `apiId` in `/v1/apis/{apiId}` fills `apis/${GraphQLAPIId}`, and `sourceApiIdentifier` in
+  `/v1/sourceApis/{sourceApiIdentifier}` a merged API association's `apis/${SourceGraphQLAPIId}`);
 - a type named only by an optional member documented as holding what the operation is about ("the cluster to which
   the instance group belongs") is named, when the request leaves that member out, through each member naming what
   the operation is about (`ModifyInstanceGroups`' `InstanceGroups[].InstanceGroupId`);
@@ -386,7 +390,7 @@ NAMESPACES = ("access-analyzer", "account", "acm", "appconfig", "application-aut
               "sqs", "sns", "kinesis", "pipes", "dsql", "sts", "eks", "resource-groups", "logs", "ses", "cloudwatch",
               "comprehend", "config", "dms", "elasticache", "identitystore", "memorydb", "route53resolver",
               "sagemaker", "transcribe", "transfer", "ec2-instance-connect", "s3", "bedrock", "apigateway", "kms",
-              "dynamodb", "iam", "rds-data", "batch")
+              "dynamodb", "iam", "rds-data", "batch", "appsync")
 
 # ---------------------------------------------------------------------------------------------------------------------
 # MEASURED: what AWS was measured to check where neither botocore nor the Service Reference says it.
@@ -647,7 +651,6 @@ _REST = ("REST: its requests name their resources in the path, which RequestReso
 NOT_COVERED: dict[str, str] = {
     "airflow": _REST,
     "app-integrations": _REST,
-    "appsync": _REST,
     "autoscaling": "not read yet: AWS's group and launch configuration ARNs carry an id the service mints, "
                    "`autoScalingGroup:<id>:autoScalingGroupName/<name>`, while Floci mints `autoScalingGroup:<name>`, "
                    "which other services (ECS capacity providers) read back; the mint is fixed first",
@@ -1467,6 +1470,51 @@ def with_documented(operation: str, types: list[str], formats: dict[str, str], m
         if len(bare) == 1:
             resources.append({"types": kinds, "through": bare[0]})
     return resources
+
+
+def route_segments(models: dict[str, dict], operation: str) -> dict[str, str]:
+    """The members the operation's REST request carries as a path label, each with the literal segment its route puts
+    before it: AppSync's `apiId` in `/v1/apis/{apiId}/datasources` follows `apis`."""
+    found: dict[str, str] = {}
+    for model in models.values():
+        spec = model["operations"].get(operation)
+        if spec is None or "input" not in spec or "http" not in spec:
+            continue
+        segments = spec["http"]["requestUri"].split("?", 1)[0].strip("/").split("/")
+        before = {match.group(1): segments[index - 1] for index, segment in enumerate(segments)
+                  if index and "{" not in segments[index - 1] and (match := re.fullmatch(r"\{(\w+)\+?}", segment))}
+        for name, member in model["shapes"][spec["input"]["shape"]].get("members", {}).items():
+            label = member.get("locationName", name)
+            if member.get("location") == "uri" and label in before:
+                found[name] = before[label]
+    return found
+
+
+def _aligned_label(variable: str, arn_format: str, eligible: dict[str, str],
+                   routed: dict[str, str] | None) -> str | None:
+    """The one path label that fills a variable its stem alone does not reach, its route putting before it the literal
+    segment the type's ARN format puts before the variable, and its stem ending the variable's: AppSync's `apiId`,
+    after `apis` in `/v1/apis/{apiId}`, fills `apis/${GraphQLAPIId}`, where `api` is too short a stem to match
+    `graphqlapi` alone. The route's segment may qualify the format's with the variable's first word, the label then
+    named as that qualified segment is: `sourceApiIdentifier`, after `sourceApis` in
+    `/v1/sourceApis/{sourceApiIdentifier}/mergedApiAssociations/{associationId}`, fills
+    `apis/${SourceGraphQLAPIId}/mergedApiAssociations/${Associationid}`."""
+    segment = re.search(r"(?:^|[:/])([A-Za-z0-9_-]+)/\$\{" + re.escape(variable) + r"}", arn_format)
+    if segment is None or not routed:
+        return None
+    word = segment.group(1)
+
+    def aligns(member: str) -> bool:
+        before = routed.get(member)
+        if before is None or not stem(member):
+            return False
+        if before == word:
+            return stem(variable).endswith(stem(member))
+        qualifier = before[:-len(word)].lower() if before.lower().endswith(word.lower()) else ""
+        return bool(qualifier) and stem(variable).startswith(qualifier) and stem(member) == stem(before) \
+            and stem(variable).endswith(stem(word))
+    aligned = [member for member in eligible if aligns(member)]
+    return aligned[0] if len(aligned) == 1 else None
 
 
 def path_labels(models: dict[str, dict], operation: str) -> dict[str, str]:
@@ -2408,11 +2456,12 @@ def compatible(member: str, variable: str) -> bool:
 def resources_for(operation: str, types: list[str], formats: dict[str, str], members: dict[str, str],
                   arn_members: set[str] | None = None, labels: dict[str, str] | None = None,
                   shapes: dict[str, str] | None = None, aliased: set[str] | None = None,
-                  foreign: set[str] | None = None) -> list[dict]:
+                  foreign: set[str] | None = None, routed: dict[str, str] | None = None) -> list[dict]:
     """The resources the rule finds the operation's request naming, as vendored entries. `labels` gives the path
     segment before each bare member a REST request carries as a path label, stemmed (`path_labels`), `shapes` the
-    botocore shape each member holds (`member_shapes`), and `foreign` the members holding another service's ARN
-    (`foreign_arn_members`), which name nothing of the namespace."""
+    botocore shape each member holds (`member_shapes`), `foreign` the members holding another service's ARN
+    (`foreign_arn_members`), which name nothing of the namespace, and `routed` the literal segment a REST route puts
+    before each path label (`route_segments`)."""
     members = {member: path for member, path in members.items() if member not in (foreign or set())}
     name = operation.split(":", 1)[1]
     created = stem(CREATING_RE.sub("", name)) if CREATING_RE.match(name) else None
@@ -2474,6 +2523,8 @@ def resources_for(operation: str, types: list[str], formats: dict[str, str], mem
             choice = _filling(variable, kind_stem, len(variables), eligible,
                               bare=bare, aliased=aliased, word_stem=word_stem,
                               shapes=shapes if not held else None)
+            if choice is None:
+                choice = _aligned_label(variable, formats[kind], eligible, routed)
             if choice is not None:
                 fill[variable] = choice
                 used[kind] = choice
@@ -4265,7 +4316,8 @@ def read_resources(operation: str, types: list[str], formats: dict[str, str], mo
                                                                           arn_members, labels,
                                                                           member_shapes(models, name),
                                                                           alias_members(models, name),
-                                                                          foreign_arn_members(models, name, formats)),
+                                                                          foreign_arn_members(models, name, formats),
+                                                                          route_segments(models, name)),
                                                             formats, types, members),
                                             types, formats, members, found_keys(models, formats),
                                             requested_members(models)),
